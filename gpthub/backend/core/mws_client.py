@@ -6,12 +6,21 @@ Usage:
 
 All functions raise openai.APIError subclasses on failure — callers handle them.
 """
+import asyncio
+import logging
 import os
 from typing import AsyncIterator
 
+import openai as _openai
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionChunk, ChatCompletion
 from openai.types import CreateEmbeddingResponse
+
+logger = logging.getLogger(__name__)
+
+# Transient errors worth retrying (TCP-level failures, timeouts, 429 / 503)
+_RETRYABLE = (_openai.APIConnectionError, _openai.APITimeoutError)
+_RETRY_DELAYS = (1.0, 3.0)  # 2 extra attempts → 3 total
 
 # ---------------------------------------------------------------------------
 # Singleton client
@@ -44,15 +53,25 @@ async def chat_complete(
     max_tokens: int | None = None,
     extra_body: dict | None = None,
 ) -> ChatCompletion:
-    """Non-streaming chat completion. Returns full response object."""
-    return await get_client().chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        stream=False,
-        **(extra_body or {}),
-    )
+    """Non-streaming chat completion. Retries on transient network errors."""
+    last_exc: Exception | None = None
+    for attempt, delay in enumerate([0.0] + list(_RETRY_DELAYS)):
+        if attempt > 0:
+            logger.warning("chat_complete retry %d/%d after %.1fs (model=%s)",
+                           attempt, len(_RETRY_DELAYS), delay, model)
+            await asyncio.sleep(delay)
+        try:
+            return await get_client().chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=False,
+                **(extra_body or {}),
+            )
+        except _RETRYABLE as e:
+            last_exc = e
+    raise last_exc  # type: ignore[misc]
 
 
 async def chat_stream(
@@ -65,18 +84,35 @@ async def chat_stream(
 ) -> AsyncIterator[ChatCompletionChunk]:
     """
     Streaming chat completion.
-    Yields ChatCompletionChunk objects — use chunk.choices[0].delta.content.
+    Retries the whole stream on transient connection errors, but only if no
+    chunks have been yielded yet (mid-stream errors are raised immediately to
+    avoid sending duplicate tokens to the client).
     """
-    stream = await get_client().chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        stream=True,
-        **(extra_body or {}),
-    )
-    async for chunk in stream:
-        yield chunk
+    last_exc: Exception | None = None
+    for attempt, delay in enumerate([0.0] + list(_RETRY_DELAYS)):
+        if attempt > 0:
+            logger.warning("chat_stream retry %d/%d after %.1fs (model=%s)",
+                           attempt, len(_RETRY_DELAYS), delay, model)
+            await asyncio.sleep(delay)
+        yielded = 0
+        try:
+            stream = await get_client().chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+                **(extra_body or {}),
+            )
+            async for chunk in stream:
+                yielded += 1
+                yield chunk
+            return  # completed successfully
+        except _RETRYABLE as e:
+            if yielded > 0:
+                raise  # mid-stream — can't safely retry
+            last_exc = e
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +155,8 @@ _EXTRACT_FACTS_PROMPT = """\
 Верни только список фактов — по одному на строку, без нумерации.
 Если фактов нет, верни пустую строку.
 
-ВАЖНО: пиши факты на том же языке, на котором ведётся диалог.
-Если диалог на русском — факты на русском. Если на английском — факты на английском.
+ВАЖНО: всегда пиши факты только на русском языке, независимо от языка диалога.
+Write facts in Russian language only, even if the conversation is in English.
 
 Диалог:
 {dialogue}"""

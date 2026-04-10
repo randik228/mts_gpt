@@ -198,10 +198,12 @@ class MemoryManager:
         *,
         top_k: int = 5,
         min_score: float = 0.30,
+        include_team: bool = True,
     ) -> list[str]:
         """
         Return up to top_k relevant memory strings for the given query.
         Filters by user_id in SQLite after FAISS retrieval.
+        When include_team=True (default) also includes scope='team' memories.
         """
         if self._index.ntotal == 0:
             return []
@@ -243,11 +245,20 @@ class MemoryManager:
         id_placeholders = ",".join("?" * len(memory_ids))
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                f"""SELECT id, content FROM memories
-                    WHERE id IN ({id_placeholders}) AND user_id = ?""",
-                (*memory_ids, user_id),
-            )
+            if include_team:
+                # Include personal memories for this user AND all team-scoped memories
+                cursor = await db.execute(
+                    f"""SELECT id, content FROM memories
+                        WHERE id IN ({id_placeholders})
+                          AND (user_id = ? OR scope = 'team')""",
+                    (*memory_ids, user_id),
+                )
+            else:
+                cursor = await db.execute(
+                    f"""SELECT id, content FROM memories
+                        WHERE id IN ({id_placeholders}) AND user_id = ?""",
+                    (*memory_ids, user_id),
+                )
             mem_rows = await cursor.fetchall()
 
         # Sort by original FAISS score (best first)
@@ -334,18 +345,27 @@ class MemoryManager:
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict]:
-        """Return memories for a user, newest first."""
-        query = "SELECT * FROM memories WHERE user_id = ?"
-        params: list = [user_id]
-        if scope:
-            query += " AND scope = ?"
-            params.append(scope)
-        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        params += [limit, offset]
+        """
+        Return memories for a user, newest first.
+        Special case: scope='team' returns ALL team-scoped memories across all users
+        (team memories are shared — user_id filter is skipped).
+        """
+        if scope == "team":
+            # Team memories are global — list all regardless of who created them
+            sql = "SELECT * FROM memories WHERE scope = 'team' ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            params: list = [limit, offset]
+        else:
+            sql = "SELECT * FROM memories WHERE user_id = ?"
+            params = [user_id]
+            if scope:
+                sql += " AND scope = ?"
+                params.append(scope)
+            sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            params += [limit, offset]
 
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
-            cursor = await db.execute(query, params)
+            cursor = await db.execute(sql, params)
             rows = await cursor.fetchall()
 
         return [dict(r) for r in rows]

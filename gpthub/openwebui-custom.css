@@ -73,32 +73,66 @@ html, body { background: #0a0a0b !important; color: #f0f0f0 !important; }
 #sidebar,
 [id="sidebar"],
 div[class*="sidebar"] {
-  background: rgba(12,12,14,.9) !important;
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
-  border-right: 1px solid var(--glass-border) !important;
+  background: rgba(10,10,12,.92) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border-right: 1px solid rgba(255,255,255,.06) !important;
 }
 
-/* Sidebar nav items */
+/* Sidebar chat history items */
 #sidebar a, #sidebar button,
 div[class*="sidebar"] a,
 div[class*="sidebar"] button {
   border-radius: 10px !important;
-  transition: background .15s !important;
+  transition: background .15s, color .15s !important;
 }
 #sidebar a:hover, #sidebar button:hover,
 div[class*="sidebar"] a:hover,
 div[class*="sidebar"] button:hover {
-  background: rgba(255,255,255,.06) !important;
+  background: rgba(255,255,255,.065) !important;
 }
 
-/* ── User message bubble — the rounded-3xl pill ──────────────────────── */
+/* Active/selected chat item — OpenWebUI adds "dark:bg-gray-900" (no group-hover prefix)
+   on the currently open chat. Inactive items only have "dark:group-hover:bg-gray-950". */
+#sidebar a[class*="dark:bg-gray-900"],
+div[class*="sidebar"] a[class*="dark:bg-gray-900"] {
+  background: rgba(227,6,17,.1) !important;
+  border-left: 2px solid rgba(227,6,17,.45) !important;
+  padding-left: 10px !important;
+}
+
+/* Sidebar section label ("Сегодня", "Вчера" …) */
+#sidebar .sticky, div[class*="sidebar"] .sticky {
+  background: transparent !important;
+  font-size: .67rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 1px !important;
+  text-transform: uppercase !important;
+  color: rgba(255,255,255,.3) !important;
+  padding: 10px 10px 3px !important;
+}
+
+/* ── Landing page (new chat) ─────────────────────────────────────────── */
+
+/* Welcome heading */
+.chat-welcome .text-2xl,
+div[class*="text-2xl"][class*="font-semibold"],
+h1[class*="text-2xl"] {
+  background: linear-gradient(135deg, #fff 40%, rgba(227,6,17,.8) 120%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  font-weight: 800 !important;
+}
+
+/* ── User message bubble ─────────────────────────────────────────────── */
 
 .user-message .rounded-3xl {
-  background: rgba(255,255,255,.06) !important;
-  border: 1px solid var(--glass-border) !important;
+  background: linear-gradient(135deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,.04) 100%) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
   border-radius: 20px !important;
-  padding: 14px 22px !important;
+  padding: 12px 20px !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,.2) !important;
 }
 
 /* ── Assistant message content area ─────────────────────────────────── */
@@ -109,17 +143,27 @@ div[class*="sidebar"] button:hover {
   padding-left: 0 !important;
 }
 
-/* Give assistant message a subtle left accent */
+/* Subtle left accent on assistant message */
 .chat-assistant.markdown-prose {
   padding-left: 14px !important;
-  border-left: 2px solid rgba(227,6,17,.35) !important;
-  position: relative;
+  border-left: 2px solid rgba(227,6,17,.3) !important;
 }
 
 /* ── Message row wrapper ─────────────────────────────────────────────── */
 
 .user-message {
   padding: 8px 0 !important;
+}
+
+/* ── Assistant model name badge ──────────────────────────────────────── */
+
+/* The "⚡ auto — универсальный" label above assistant messages */
+div[class*="font-semibold"][class*="capitalize"],
+.chat-assistant-name {
+  font-size: .78rem !important;
+  font-weight: 600 !important;
+  color: rgba(255,255,255,.55) !important;
+  letter-spacing: .2px !important;
 }
 
 /* ── Response container ─────────────────────────────────────────────── */
@@ -136,22 +180,43 @@ div[class*="sidebar"] button:hover {
 
 .chat-input,
 #chat-textarea,
-textarea,
-div[contenteditable="true"] {
+textarea {
   background: rgba(255,255,255,.04) !important;
   border: 1.5px solid var(--glass-border) !important;
   border-radius: 16px !important;
   color: #f0f0f0 !important;
   caret-color: var(--mts) !important;
+  padding: 10px 16px !important;
   transition: border-color .2s, box-shadow .2s !important;
 }
 .chat-input:focus,
 #chat-textarea:focus,
-textarea:focus,
-div[contenteditable="true"]:focus {
+textarea:focus {
   border-color: var(--mts) !important;
   box-shadow: 0 0 0 3px var(--mts-glow), 0 0 24px rgba(227,6,17,.06) !important;
   outline: none !important;
+}
+
+/* OpenWebUI v0.6+ uses ProseMirror/TipTap contenteditable inside a rounded container.
+   The visible outer border lives on the ancestor div.rounded-3xl — we only need
+   to ensure adequate padding inside so text never touches the rounded corner. */
+div[contenteditable="true"].ProseMirror,
+div[contenteditable="true"].tiptap {
+  padding: 2px 8px !important;
+  outline: none !important;
+}
+
+/* Style the real outer container (rounded-3xl shadow-lg) for border/focus effect.
+   Border is transparent by default — only shows red on :focus-within.            */
+div[class*="rounded-3xl"][class*="shadow-lg"] {
+  border: 1.5px solid transparent !important;
+  border-radius: 24px !important;
+  background: rgba(255,255,255,.04) !important;
+  transition: border-color .2s, box-shadow .2s !important;
+}
+div[class*="rounded-3xl"][class*="shadow-lg"]:focus-within {
+  border-color: var(--mts) !important;
+  box-shadow: 0 0 0 3px var(--mts-glow), 0 0 24px rgba(227,6,17,.06) !important;
 }
 
 .chat-input-container {
@@ -269,17 +334,18 @@ pre > code.hljs.language-thinking {
 
 /* ── Dialogs & dropdowns ─────────────────────────────────────────────── */
 
-dialog, [role="dialog"],
-div[class*="modal"] {
-  background: rgba(14,14,16,.94) !important;
+/* NOTE: div.modal is the full-screen BACKDROP overlay — styled separately below.
+   Do NOT include div[class*="modal"] here as it would make the overlay opaque. */
+dialog, [role="dialog"] {
+  background: rgba(15,15,18,.98) !important;
   backdrop-filter: blur(28px) !important;
-  border: 1px solid var(--glass-border) !important;
-  border-radius: 18px !important;
-  box-shadow: var(--shadow-lg) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 32px 80px rgba(0,0,0,.7), 0 8px 40px rgba(0,0,0,.4) !important;
 }
 div[class*="dropdown"],
 [role="listbox"], [role="menu"] {
-  background: rgba(14,14,16,.94) !important;
+  background: rgba(14,14,16,.96) !important;
   backdrop-filter: blur(20px) !important;
   border: 1px solid var(--glass-border) !important;
   border-radius: 14px !important;
@@ -291,6 +357,158 @@ div[class*="dropdown"] button:hover,
 div[class*="dropdown"] a:hover {
   background: rgba(255,255,255,.07) !important;
   border-radius: 8px !important;
+}
+
+/* ── Settings Modal ──────────────────────────────────────────────────── */
+
+/* Full-screen backdrop overlay */
+div.modal {
+  background: rgba(0,0,0,.6) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+/* Dialog card */
+div.modal > div {
+  background: rgba(15,15,18,.99) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 22px !important;
+  box-shadow: 0 32px 80px rgba(0,0,0,.7), 0 8px 40px rgba(0,0,0,.5) !important;
+  overflow: hidden !important;
+}
+
+/* Header bar ("Настройки" + close btn) */
+div.modal > div > div > .flex.justify-between {
+  background: rgba(255,255,255,.02) !important;
+  border-bottom: 1px solid rgba(255,255,255,.07) !important;
+  padding: 16px 22px 14px !important;
+}
+div.modal .text-lg.font-medium {
+  font-size: .95rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .3px !important;
+  color: #f0f0f0 !important;
+}
+
+/* Left nav sidebar */
+.tabs {
+  border-right: 1px solid rgba(255,255,255,.07) !important;
+  padding-right: 8px !important;
+  gap: 3px !important;
+}
+
+/* Nav items — inactive: class contains dark:text-gray-600 */
+.tabs button[class*="dark:text-gray-6"],
+.tabs button[class*="text-gray-3"] {
+  color: rgba(255,255,255,.4) !important;
+  font-size: .78rem !important;
+  padding: 7px 10px !important;
+  border-radius: 9px !important;
+}
+.tabs button[class*="dark:text-gray-6"]:hover {
+  background: rgba(255,255,255,.06) !important;
+  color: rgba(255,255,255,.8) !important;
+}
+
+/* Nav items — active: class ends at "transition " (no color classes) */
+.tabs button:not([class*="dark:text-gray-6"]):not([class*="text-gray-3"]):not(.hidden):not([class*="overflow"]) {
+  background: rgba(227,6,17,.14) !important;
+  color: var(--mts) !important;
+  font-weight: 600 !important;
+  font-size: .78rem !important;
+  padding: 7px 10px !important;
+  border-radius: 9px !important;
+  border: 1px solid rgba(227,6,17,.2) !important;
+}
+
+/* Section headings inside settings ("Пользовательский интерфейс", "Чат" …) */
+.modal [class~="mb-1"][class~="font-medium"],
+.modal [class~="my-1"][class~="font-medium"],
+.modal [class~="mb-1.5"][class~="font-medium"],
+.modal [class~="my-1.5"][class~="font-medium"] {
+  font-size: .67rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 1px !important;
+  text-transform: uppercase !important;
+  color: rgba(255,255,255,.35) !important;
+  border-bottom: 1px solid rgba(255,255,255,.06) !important;
+  padding-bottom: 6px !important;
+  padding-top: 14px !important;
+  margin-bottom: 2px !important;
+}
+
+/* Individual setting rows */
+.modal [class~="py-0.5"][class~="justify-between"] {
+  padding: 5px 8px !important;
+  border-radius: 8px !important;
+  transition: background .12s !important;
+  margin: 1px 0 !important;
+}
+.modal [class~="py-0.5"][class~="justify-between"]:hover {
+  background: rgba(255,255,255,.04) !important;
+}
+.modal [class~="py-0.5"][class~="justify-between"] .self-center.text-xs {
+  color: rgba(255,255,255,.72) !important;
+  font-size: .8rem !important;
+}
+
+/* Toggle / value pill buttons ("Включено" / "Выключено") */
+.modal form button[class~="rounded-sm"] {
+  background: rgba(255,255,255,.07) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 8px !important;
+  color: rgba(255,255,255,.7) !important;
+  font-size: .72rem !important;
+  font-weight: 500 !important;
+  padding: 3px 10px !important;
+  transition: all .15s !important;
+  white-space: nowrap !important;
+}
+.modal form button[class~="rounded-sm"]:hover {
+  background: rgba(255,255,255,.13) !important;
+  color: #fff !important;
+  border-color: rgba(255,255,255,.22) !important;
+}
+
+/* Scrollable settings panel */
+.modal [class~="overflow-y-scroll"] {
+  scrollbar-width: thin !important;
+  padding-right: 4px !important;
+}
+
+/* System prompt textarea in General settings */
+.modal form textarea {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid rgba(255,255,255,.1) !important;
+  border-radius: 12px !important;
+  color: #f0f0f0 !important;
+  padding: 10px 14px !important;
+  font-size: .82rem !important;
+  resize: vertical !important;
+  transition: border-color .2s !important;
+}
+.modal form textarea:focus {
+  border-color: var(--mts) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px var(--mts-glow) !important;
+}
+
+/* Save button in settings */
+.modal .flex.justify-end button[type="submit"],
+.modal .flex.justify-end button:not([class*="close"]) {
+  background: var(--mts-grad) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 8px 20px !important;
+  font-weight: 600 !important;
+  font-size: .83rem !important;
+  box-shadow: 0 2px 12px rgba(227,6,17,.3) !important;
+  transition: all .15s !important;
+}
+.modal .flex.justify-end button:not([class*="close"]):hover {
+  box-shadow: 0 4px 20px rgba(227,6,17,.5) !important;
+  transform: scale(1.02) !important;
 }
 
 /* ── Prose / markdown ────────────────────────────────────────────────── */
@@ -322,7 +540,9 @@ div[class*="dropdown"] a:hover {
 
 /* ── Buttons (general) ───────────────────────────────────────────────── */
 
-button { border-radius: 10px !important; transition: all .12s ease !important; }
+/* Exclude rounded-full buttons (circles, pills) — they must stay circular */
+button:not([class*="rounded-full"]) { border-radius: 10px !important; transition: all .12s ease !important; }
+button[class*="rounded-full"]       { transition: all .12s ease !important; }
 
 /* Primary action buttons */
 button.bg-blue-600, .btn-primary,
@@ -403,3 +623,311 @@ hr, [class*="divider"] { border-color: var(--glass-border) !important; }
 /* ── Spinner ─────────────────────────────────────────────────────────── */
 
 .animate-spin { color: var(--mts) !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Settings — All-tabs polish (v3.1)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Select elements: stronger override (rounded-sm → glass pill) ────── */
+/* Tailwind class specificity beats element selector — use class+element   */
+select[class~="rounded-sm"],
+.modal select {
+  border-radius: 10px !important;
+  border: 1.5px solid rgba(255,255,255,.12) !important;
+  background: rgba(255,255,255,.06) !important;
+  color: #e0e0e0 !important;
+  padding: 5px 26px 5px 10px !important;
+  font-size: .78rem !important;
+  transition: border-color .2s, box-shadow .2s !important;
+}
+select[class~="rounded-sm"]:focus,
+.modal select:focus {
+  border-color: var(--mts) !important;
+  box-shadow: 0 0 0 3px var(--mts-glow) !important;
+  outline: none !important;
+}
+
+/* ── Text inputs inside settings modal ────────────────────────────────── */
+.modal input:not([type="checkbox"]):not([type="radio"])
+                :not([type="range"]):not([type="file"]) {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid rgba(255,255,255,.1) !important;
+  border-radius: 10px !important;
+  color: #e8e8e8 !important;
+  padding: 7px 12px !important;
+  font-size: .82rem !important;
+  transition: border-color .2s, box-shadow .2s !important;
+}
+.modal input:not([type="checkbox"]):not([type="radio"])
+            :not([type="range"]):not([type="file"]):focus {
+  border-color: var(--mts) !important;
+  box-shadow: 0 0 0 3px var(--mts-glow) !important;
+  outline: none !important;
+}
+
+/* ── "Показать" / "Скрыть" secondary pill buttons ────────────────────── */
+/* Sit at far-right of "Изменить пароль" / "Ключи API" rows              */
+.modal button[class*="text-gray-5"],
+.modal button[class*="dark:text-gray-4"] {
+  background: rgba(255,255,255,.06) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 7px !important;
+  color: rgba(255,255,255,.6) !important;
+  padding: 3px 9px !important;
+  font-size: .71rem !important;
+  font-weight: 500 !important;
+  transition: all .15s !important;
+}
+.modal button[class*="text-gray-5"]:hover,
+.modal button[class*="dark:text-gray-4"]:hover {
+  background: rgba(255,255,255,.11) !important;
+  color: rgba(255,255,255,.9) !important;
+  border-color: rgba(255,255,255,.22) !important;
+}
+
+/* ── Учетная запись: profile avatar action buttons ───────────────────── */
+/* "Использовать инициалы" / "Использовать Gravatar" / "Удалить"         */
+.modal [class*="rounded-full"] ~ div button:not([type="submit"]),
+.modal [class*="rounded-full"] ~ span button:not([type="submit"]) {
+  background: rgba(255,255,255,.07) !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+  border-radius: 8px !important;
+  color: rgba(255,255,255,.7) !important;
+  font-size: .73rem !important;
+  padding: 4px 10px !important;
+  transition: all .15s !important;
+}
+.modal [class*="rounded-full"] ~ div button:hover,
+.modal [class*="rounded-full"] ~ span button:hover {
+  background: rgba(255,255,255,.13) !important;
+  color: #fff !important;
+}
+
+/* ── Персонализация: "Управлять" standalone button ───────────────────── */
+/* Matched by having gap-1 and being a top-level action button in form    */
+.modal form button[class~="gap-1"],
+.modal form button[class~="gap-2"]:not([class~="rounded-sm"]):not([class*="py-0"]) {
+  background: rgba(255,255,255,.07) !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+  border-radius: 9px !important;
+  color: rgba(255,255,255,.75) !important;
+  padding: 6px 14px !important;
+  font-size: .78rem !important;
+  font-weight: 500 !important;
+  transition: all .15s !important;
+}
+.modal form button[class~="gap-1"]:hover,
+.modal form button[class~="gap-2"]:not([class~="rounded-sm"]):hover {
+  background: rgba(255,255,255,.13) !important;
+  color: #fff !important;
+}
+
+/* ── Чаты tab: action rows (Импорт / Экспорт / Архив / Удалить) ──────── */
+.modal [class~="cursor-pointer"][class~="flex"][class~="w-full"],
+.modal button[class~="cursor-pointer"][class~="w-full"] {
+  border-radius: 10px !important;
+  padding: 9px 12px !important;
+  transition: background .15s !important;
+  margin-bottom: 2px !important;
+}
+.modal [class~="cursor-pointer"][class~="flex"][class~="w-full"]:hover,
+.modal button[class~="cursor-pointer"][class~="w-full"]:hover {
+  background: rgba(255,255,255,.06) !important;
+}
+/* "Удалить ВСЕ Чаты" — danger highlight on hover */
+.modal [class~="cursor-pointer"][class*="text-red"]:hover,
+.modal button[class*="text-red"]:not([type="submit"]):hover {
+  background: rgba(227,6,17,.12) !important;
+  color: #ff6b6b !important;
+}
+
+/* ── О программе: license scrollarea ────────────────────────────────── */
+.modal [class*="overflow-y"][class~="text-xs"],
+.modal [class~="text-xs"][class*="font-mono"] {
+  background: rgba(255,255,255,.025) !important;
+  border: 1px solid rgba(255,255,255,.07) !important;
+  border-radius: 10px !important;
+  padding: 12px 16px !important;
+  color: rgba(255,255,255,.38) !important;
+  font-family: 'JetBrains Mono', Consolas, monospace !important;
+  font-size: .7rem !important;
+  line-height: 1.7 !important;
+}
+
+/* ── О программе: "Проверить обновления" / "Документация" ───────────── */
+.modal [class*="justify-end"] > a,
+.modal [class*="justify-between"] > a {
+  background: rgba(255,255,255,.07) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 8px !important;
+  color: rgba(255,255,255,.6) !important;
+  padding: 4px 11px !important;
+  font-size: .74rem !important;
+  font-weight: 500 !important;
+  text-decoration: none !important;
+  transition: all .15s !important;
+}
+.modal [class*="justify-end"] > a:hover,
+.modal [class*="justify-between"] > a:hover {
+  background: rgba(255,255,255,.13) !important;
+  color: #fff !important;
+}
+
+/* ── Инструменты: iframe tool area ────────────────────────────────────── */
+.modal iframe {
+  border-radius: 10px !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  /* Invert white iframe content to dark */
+  filter: invert(1) hue-rotate(180deg) brightness(.88) contrast(.95) !important;
+}
+
+/* ── Settings sidebar: search input ──────────────────────────────────── */
+.tabs input,
+.modal div[class*="sticky"] input[type="text"],
+.modal input[placeholder*="оиск"],
+.modal input[placeholder*="earch"] {
+  background: rgba(255,255,255,.05) !important;
+  border: 1px solid rgba(255,255,255,.09) !important;
+  border-radius: 9px !important;
+  color: rgba(255,255,255,.7) !important;
+  font-size: .76rem !important;
+  transition: border-color .2s !important;
+}
+.tabs input:focus {
+  border-color: var(--mts) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px var(--mts-glow) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Admin panel (/admin/*) — full-page settings style
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Top sticky header nav */
+#app [class*="sticky"][class*="border-b"] {
+  background: rgba(10,10,12,.96) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-bottom-color: rgba(255,255,255,.06) !important;
+}
+
+/* Left sidebar nav links */
+#app aside a, #app nav[class*="flex-col"] a {
+  border-radius: 9px !important;
+  padding: 6px 10px !important;
+  transition: background .12s, color .12s !important;
+  font-size: .82rem !important;
+}
+#app aside a:hover { background: rgba(255,255,255,.06) !important; }
+
+/* Admin active nav item (has red text from OpenWebUI) */
+#app aside a[class*="text-red"],
+#app nav a[class*="text-red"] {
+  background: rgba(227,6,17,.1) !important;
+  border-left: 2px solid rgba(227,6,17,.4) !important;
+  font-weight: 600 !important;
+}
+
+/* Section headings in admin content */
+#app main h2, #app main h3,
+#app main [class~="text-sm"][class~="font-semibold"] {
+  font-size: .68rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .9px !important;
+  text-transform: uppercase !important;
+  color: rgba(255,255,255,.38) !important;
+  border-bottom: 1px solid rgba(255,255,255,.06) !important;
+  padding-bottom: 5px !important;
+  margin-bottom: 8px !important;
+}
+
+/* Admin input fields */
+#app main input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid rgba(255,255,255,.1) !important;
+  border-radius: 10px !important;
+  color: #e8e8e8 !important;
+  padding: 7px 12px !important;
+  transition: border-color .2s, box-shadow .2s !important;
+}
+#app main input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus {
+  border-color: var(--mts) !important;
+  box-shadow: 0 0 0 3px var(--mts-glow) !important;
+  outline: none !important;
+}
+
+/* Admin textareas */
+#app main textarea {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid rgba(255,255,255,.1) !important;
+  border-radius: 10px !important;
+  color: #e8e8e8 !important;
+  padding: 8px 12px !important;
+  resize: vertical !important;
+  transition: border-color .2s !important;
+  min-height: 80px !important;
+}
+#app main textarea:focus {
+  border-color: var(--mts) !important;
+  box-shadow: 0 0 0 3px var(--mts-glow) !important;
+  outline: none !important;
+}
+
+/* Admin select elements */
+#app main select {
+  border-radius: 10px !important;
+  border: 1.5px solid rgba(255,255,255,.1) !important;
+  background: rgba(255,255,255,.06) !important;
+  color: #e0e0e0 !important;
+  padding: 5px 26px 5px 10px !important;
+  font-size: .8rem !important;
+  transition: border-color .2s !important;
+}
+#app main select:focus {
+  border-color: var(--mts) !important;
+  box-shadow: 0 0 0 3px var(--mts-glow) !important;
+  outline: none !important;
+}
+
+/* Admin rows (label + toggle pairs) */
+#app main [class~="flex"][class~="justify-between"][class~="items-center"] {
+  padding: 8px 4px !important;
+  border-bottom: 1px solid rgba(255,255,255,.04) !important;
+  transition: background .12s !important;
+  border-radius: 8px !important;
+}
+#app main [class~="flex"][class~="justify-between"][class~="items-center"]:hover {
+  background: rgba(255,255,255,.03) !important;
+}
+
+/* Admin save button */
+#app main button[type="submit"],
+#app main [class*="justify-end"] button:not([class*="text-red"]) {
+  background: var(--mts-grad) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 8px 22px !important;
+  font-weight: 600 !important;
+  font-size: .83rem !important;
+  box-shadow: 0 2px 12px rgba(227,6,17,.28) !important;
+  transition: all .15s !important;
+}
+#app main button[type="submit"]:hover {
+  box-shadow: 0 4px 20px rgba(227,6,17,.5) !important;
+  transform: scale(1.02) !important;
+}
+
+/* ── Model / user avatar: fix broken image when profile_image_url="" ─────── */
+/* When src="" or src is absent, browser either fails or loads page HTML.      */
+/* CSS content: url() trick (Webkit/Chrome) replaces broken src inline.        */
+/* Cases:                                                                       */
+/*   alt="logo"  → home-page model banner  (src attr set to "")               */
+/*   alt="Model" → model picker list items (src attr completely absent/null)   */
+img[alt="logo"][src=""],
+img[alt="Model"][src=""],
+img[alt="Model"]:not([src]) {
+  content: url('/static/favicon.png') !important;
+  object-fit: cover !important;
+  border-radius: 50% !important;
+}
