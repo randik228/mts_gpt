@@ -1,0 +1,24 @@
+# Все shell-скрипты — всегда LF, даже на Windows
+*.sh        text eol=lf
+
+# Dockerfile и конфиги тоже LF
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.env*      text eol=lf
+
+# Исходный код — нормализовать, но без принудительного eol
+*.py        text
+*.ts        text
+*.tsx       text
+*.js        text
+*.json      text
+*.css       text
+*.md        text
+
+# Бинарники — не трогать
+*.png       binary
+*.jpg       binary
+*.ico       binary
+*.gz        binary
+*.whl       binary
