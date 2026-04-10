@@ -1,0 +1,405 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   GPTHub × MTS — OpenWebUI Theme v3
+   Built on real DOM class names from OpenWebUI v0.6.5 source
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* ── Custom tokens (color-gray-* set via JS inline styles in entrypoint) ── */
+
+:root {
+  --mts:          #E30611;
+  --mts-grad:     linear-gradient(135deg, #E30611 0%, #ff4d57 100%);
+  --mts-dim:      rgba(227,6,17,.10);
+  --mts-glow:     rgba(227,6,17,.22);
+  --glass:        rgba(255,255,255,.04);
+  --glass-border: rgba(255,255,255,.08);
+  --glass-lit:    rgba(255,255,255,.14);
+  --think:        #a78bfa;
+  --think-dim:    rgba(167,139,250,.07);
+  --think-border: rgba(167,139,250,.20);
+  --shadow:       0 2px 8px rgba(0,0,0,.35), 0 8px 32px rgba(0,0,0,.2);
+  --shadow-lg:    0 8px 32px rgba(0,0,0,.5), 0 20px 60px rgba(0,0,0,.3);
+}
+
+/* ── Fonts ────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+}
+code, code *, pre, pre *,
+.hljs, .hljs * {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace !important;
+}
+
+/* ── Brand stripe ─────────────────────────────────────────────────────── */
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--mts-grad);
+  z-index: 99999;
+  pointer-events: none;
+}
+
+/* ── Ambient glow background ──────────────────────────────────────────── */
+
+body::after {
+  content: '';
+  position: fixed;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background:
+    radial-gradient(ellipse at 25% 40%, rgba(227,6,17,.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 75% 20%, rgba(167,139,250,.025) 0%, transparent 50%);
+  animation: drift 25s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: -1;
+}
+@keyframes drift {
+  from { transform: translate(0, 0); }
+  to   { transform: translate(-4%, 2%); }
+}
+
+/* ── Base canvas ──────────────────────────────────────────────────────── */
+
+html, body { background: #0a0a0b !important; color: #f0f0f0 !important; }
+
+/* ── Sidebar ─────────────────────────────────────────────────────────── */
+
+#sidebar,
+[id="sidebar"],
+div[class*="sidebar"] {
+  background: rgba(12,12,14,.9) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-right: 1px solid var(--glass-border) !important;
+}
+
+/* Sidebar nav items */
+#sidebar a, #sidebar button,
+div[class*="sidebar"] a,
+div[class*="sidebar"] button {
+  border-radius: 10px !important;
+  transition: background .15s !important;
+}
+#sidebar a:hover, #sidebar button:hover,
+div[class*="sidebar"] a:hover,
+div[class*="sidebar"] button:hover {
+  background: rgba(255,255,255,.06) !important;
+}
+
+/* ── User message bubble — the rounded-3xl pill ──────────────────────── */
+
+.user-message .rounded-3xl {
+  background: rgba(255,255,255,.06) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 20px !important;
+  padding: 14px 22px !important;
+}
+
+/* ── Assistant message content area ─────────────────────────────────── */
+
+.chat-assistant,
+.markdown-prose {
+  border-left: none !important;
+  padding-left: 0 !important;
+}
+
+/* Give assistant message a subtle left accent */
+.chat-assistant.markdown-prose {
+  padding-left: 14px !important;
+  border-left: 2px solid rgba(227,6,17,.35) !important;
+  position: relative;
+}
+
+/* ── Message row wrapper ─────────────────────────────────────────────── */
+
+.user-message {
+  padding: 8px 0 !important;
+}
+
+/* ── Response container ─────────────────────────────────────────────── */
+
+#response-content-container {
+  animation: fade-in .25s ease-out;
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Input area ──────────────────────────────────────────────────────── */
+
+.chat-input,
+#chat-textarea,
+textarea,
+div[contenteditable="true"] {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid var(--glass-border) !important;
+  border-radius: 16px !important;
+  color: #f0f0f0 !important;
+  caret-color: var(--mts) !important;
+  transition: border-color .2s, box-shadow .2s !important;
+}
+.chat-input:focus,
+#chat-textarea:focus,
+textarea:focus,
+div[contenteditable="true"]:focus {
+  border-color: var(--mts) !important;
+  box-shadow: 0 0 0 3px var(--mts-glow), 0 0 24px rgba(227,6,17,.06) !important;
+  outline: none !important;
+}
+
+.chat-input-container {
+  background: rgba(10,10,11,.8) !important;
+  backdrop-filter: blur(20px) !important;
+}
+
+/* Generic inputs */
+input[type="text"], input[type="search"],
+input[type="password"], input[type="email"],
+input[type="number"], select {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid var(--glass-border) !important;
+  border-radius: 12px !important;
+  color: #f0f0f0 !important;
+  transition: border-color .2s, box-shadow .2s !important;
+}
+input:focus, select:focus {
+  border-color: var(--mts) !important;
+  box-shadow: 0 0 0 3px var(--mts-glow) !important;
+  outline: none !important;
+}
+
+/* ── Send button ─────────────────────────────────────────────────────── */
+
+.send-message-button,
+button[aria-label*="Send" i],
+button[aria-label*="Отправить" i] {
+  background: var(--mts-grad) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 10px rgba(227,6,17,.3) !important;
+  transition: all .15s ease !important;
+}
+.send-message-button:hover,
+button[aria-label*="Send" i]:hover {
+  box-shadow: 0 4px 20px rgba(227,6,17,.45) !important;
+  transform: scale(1.05) !important;
+}
+/* Also target bg-black/dark:bg-white pattern used by OpenWebUI send button */
+button.bg-black, button.dark\:bg-white {
+  background: var(--mts-grad) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 10px rgba(227,6,17,.3) !important;
+}
+button.bg-black svg, button.dark\:bg-white svg {
+  color: #fff !important; fill: #fff !important;
+}
+
+/* ── Model selector pill ─────────────────────────────────────────────── */
+
+button[id*="model"],
+button[class*="model-selector"],
+.model-selector {
+  background: rgba(227,6,17,.12) !important;
+  border: 1.5px solid rgba(227,6,17,.3) !important;
+  border-radius: 20px !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+  transition: all .15s ease !important;
+}
+button[id*="model"]:hover,
+.model-selector:hover {
+  background: rgba(227,6,17,.2) !important;
+  border-color: var(--mts) !important;
+}
+
+/* ── Code blocks ─────────────────────────────────────────────────────── */
+
+pre {
+  background: #08090d !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow) !important;
+}
+pre code, code.hljs {
+  background: transparent !important;
+  color: #7ee787 !important;
+}
+:not(pre) > code {
+  background: var(--mts-dim) !important;
+  color: #fca5a5 !important;
+  padding: 2px 6px !important;
+  border-radius: 5px !important;
+  font-size: .87em !important;
+  border: 1px solid rgba(227,6,17,.1) !important;
+}
+
+/* ── Thinking blocks (```thinking fenced code) ───────────────────────── */
+
+pre:has(> code.language-thinking),
+pre:has(> code.hljs.language-thinking) {
+  background: var(--think-dim) !important;
+  border: 1px solid var(--think-border) !important;
+  border-left: 3px solid var(--think) !important;
+  border-radius: 12px !important;
+  max-height: 120px;
+  overflow-y: auto;
+  transition: max-height .3s ease;
+  box-shadow: none !important;
+}
+pre:has(> code.language-thinking):hover,
+pre:has(> code.hljs.language-thinking):hover {
+  max-height: 580px;
+}
+pre > code.language-thinking,
+pre > code.hljs.language-thinking {
+  color: var(--think) !important;
+  background: transparent !important;
+  white-space: pre-wrap !important;
+  font-size: .82rem !important;
+  line-height: 1.6;
+}
+
+/* ── Dialogs & dropdowns ─────────────────────────────────────────────── */
+
+dialog, [role="dialog"],
+div[class*="modal"] {
+  background: rgba(14,14,16,.94) !important;
+  backdrop-filter: blur(28px) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 18px !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+div[class*="dropdown"],
+[role="listbox"], [role="menu"] {
+  background: rgba(14,14,16,.94) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+[role="option"]:hover,
+[role="menuitem"]:hover,
+div[class*="dropdown"] button:hover,
+div[class*="dropdown"] a:hover {
+  background: rgba(255,255,255,.07) !important;
+  border-radius: 8px !important;
+}
+
+/* ── Prose / markdown ────────────────────────────────────────────────── */
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  color: #f5f5f5 !important;
+  font-weight: 700 !important;
+}
+.prose strong { color: #f1f5f9 !important; }
+.prose blockquote {
+  border-left: 3px solid var(--mts) !important;
+  background: var(--mts-dim) !important;
+  padding: .5rem 1rem !important;
+  border-radius: 0 10px 10px 0 !important;
+}
+.prose table { border-collapse: collapse !important; width: 100% !important; }
+.prose th {
+  background: rgba(255,255,255,.05) !important;
+  border-bottom: 2px solid var(--mts) !important;
+  font-size: .72rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: .8px !important;
+  font-weight: 600 !important;
+  padding: 10px 14px !important;
+}
+.prose td { border-bottom: 1px solid rgba(255,255,255,.04) !important; padding: 10px 14px !important; }
+.prose tr:hover td { background: rgba(255,255,255,.04) !important; }
+.prose hr { border-color: var(--glass-border) !important; }
+
+/* ── Buttons (general) ───────────────────────────────────────────────── */
+
+button { border-radius: 10px !important; transition: all .12s ease !important; }
+
+/* Primary action buttons */
+button.bg-blue-600, .btn-primary,
+button[class*="primary"] {
+  background: var(--mts-grad) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: 0 2px 10px rgba(227,6,17,.25) !important;
+}
+
+/* Message action icons (copy, regenerate, etc.) */
+.chat-copy-button, .regenerate-response-button,
+.delete-response-button, .edit-user-message-button {
+  opacity: .35;
+  border-radius: 8px !important;
+  transition: all .15s !important;
+}
+.chat-copy-button:hover, .regenerate-response-button:hover,
+.delete-response-button:hover, .edit-user-message-button:hover {
+  opacity: 1;
+  background: var(--mts-dim) !important;
+  color: var(--mts) !important;
+}
+
+/* ── Landing page suggestion chips ──────────────────────────────────── */
+
+button[class*="suggestion"],
+div[class*="suggestion"] button {
+  background: var(--glass) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 14px !important;
+  backdrop-filter: blur(8px) !important;
+  transition: all .2s ease !important;
+}
+button[class*="suggestion"]:hover {
+  border-color: var(--glass-lit) !important;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow) !important;
+}
+
+/* ── Toggles ─────────────────────────────────────────────────────────── */
+
+input[type="checkbox"][role="switch"]:checked,
+button[role="switch"][aria-checked="true"] {
+  background-color: var(--mts) !important;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.18); }
+
+/* ── Selection & focus ───────────────────────────────────────────────── */
+
+::selection { background: rgba(227,6,17,.25) !important; color: #fff !important; }
+*:focus-visible { outline: 2px solid var(--mts) !important; outline-offset: 2px !important; }
+
+/* ── Links ───────────────────────────────────────────────────────────── */
+
+a { color: #fca5a5 !important; }
+a:hover { color: var(--mts) !important; }
+
+/* ── Tooltips ────────────────────────────────────────────────────────── */
+
+[role="tooltip"] {
+  background: rgba(14,14,16,.96) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 10px !important;
+}
+
+/* ── Dividers ────────────────────────────────────────────────────────── */
+
+hr, [class*="divider"] { border-color: var(--glass-border) !important; }
+
+/* ── Spinner ─────────────────────────────────────────────────────────── */
+
+.animate-spin { color: var(--mts) !important; }
