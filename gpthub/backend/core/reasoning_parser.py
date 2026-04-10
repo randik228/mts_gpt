@@ -48,11 +48,26 @@ _THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
 
 
 def _format_thinking(content: str) -> str:
-    """Wrap think-block content in a ```thinking fenced code block."""
+    """
+    Format think-block as a collapsible <details>/<summary> HTML element.
+    Browsers collapse <details> by default — user clicks to expand.
+    OpenWebUI passes HTML through its markdown renderer so this renders correctly.
+
+    Output:
+        <details>
+        <summary>🧠 Процесс мышления</summary>
+
+        thinking content here
+
+        </details>
+
+        ---
+
+    """
     if not content:
         return ""
     body = content.strip()
-    return f"```thinking\n🧠 Процесс мышления\n{body}\n```\n\n"
+    return f"<details>\n<summary>🧠 Процесс мышления</summary>\n\n{body}\n\n</details>\n\n---\n\n"
 
 # System prompt snippet injected for models that don't natively support <think>
 REASONING_SYSTEM_PROMPT = (
@@ -63,6 +78,11 @@ REASONING_SYSTEM_PROMPT = (
 
 # Models that natively emit <think> — no system prompt injection needed
 NATIVE_REASONING_MODELS = {"deepseek-r1-distill-qwen-32b", "QwQ-32B"}
+
+# Models where we actively WANT to inject the reasoning system prompt.
+# All other models respond faster and better WITHOUT forced thinking.
+# (Empty by default — only native reasoning models show <think> blocks.)
+REASONING_INJECTION_MODELS: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -217,12 +237,17 @@ class StreamingReasoningParser:
 
 def build_reasoning_system_prompt(model: str, existing_system: str | None = None) -> str | None:
     """
-    For non-native reasoning models, returns an augmented system prompt
-    that instructs the model to use <think> tags.
-    Returns None if the model handles reasoning natively.
+    Returns an augmented system prompt instructing the model to use <think> tags,
+    but ONLY for models in REASONING_INJECTION_MODELS.
+    Native reasoning models (deepseek, QwQ) already emit <think> on their own.
+    All other models (gpt-oss-20b, qwen-coder, etc.) respond cleaner without forced thinking.
+    Returns None if no injection is needed.
     """
     if model in NATIVE_REASONING_MODELS:
-        return None  # model already emits <think> natively
+        return None  # model already emits <think> natively — no injection needed
+
+    if model not in REASONING_INJECTION_MODELS:
+        return None  # not a thinking model — skip injection, keep responses clean
 
     injection = REASONING_SYSTEM_PROMPT
     if existing_system:

@@ -75,9 +75,9 @@ class AnalyticsStore:
                     routed_to                        AS model,
                     COUNT(*)                         AS calls,
                     AVG(latency_ms)                  AS avg_latency_ms,
-                    SUM(CASE WHEN method='keyword'   THEN 1 ELSE 0 END) AS keyword_hits,
-                    SUM(CASE WHEN method='embedding' THEN 1 ELSE 0 END) AS embedding_hits,
-                    SUM(CASE WHEN method='multimodal' THEN 1 ELSE 0 END) AS multimodal_hits,
+                    SUM(CASE WHEN method='keyword'    THEN 1 ELSE 0 END) AS keyword_hits,
+                    SUM(CASE WHEN method='embedding'  THEN 1 ELSE 0 END) AS embedding_hits,
+                    SUM(CASE WHEN method IN ('multimodal','virtual') THEN 1 ELSE 0 END) AS multimodal_hits,
                     MAX(ts)                          AS last_used
                 FROM routing_log
                 GROUP BY routed_to

@@ -123,6 +123,15 @@ async def chat_completions(request: Request):
         routing_reason = "explicit"
         routing_method = "passthrough"
 
+    # Suppress reasoning_content display for non-reasoning virtual models.
+    # Only auto-reasoning (deepseek/QwQ) and explicit reasoning model picks show thinking.
+    _REASONING_VIRTUAL = {"auto-reasoning"}
+    suppress_reasoning = (
+        req.model in _VIRTUAL_MAP
+        and req.model not in _REASONING_VIRTUAL
+        and real_model not in NATIVE_REASONING_MODELS
+    )
+
     logger.info(
         "chat_completions model=%s → %s [%s: %s] stream=%s",
         req.model, real_model, routing_method, routing_reason, req.stream,
@@ -130,7 +139,12 @@ async def chat_completions(request: Request):
 
     # --- Memory inject (before request) ---
     user_id = req.user or "default"
-    messages_with_mem = await _inject_memories(messages_raw, user_id)
+    # Skip memory for OpenWebUI internal system requests (title/tag generation etc.)
+    _is_system_request = _detect_system_request(messages_raw)
+    messages_with_mem = (
+        messages_raw if _is_system_request
+        else await _inject_memories(messages_raw, user_id)
+    )
 
     # --- Reasoning system prompt inject ---
     messages_final = _inject_reasoning_prompt(real_model, messages_with_mem)
@@ -142,7 +156,9 @@ async def chat_completions(request: Request):
         return StreamingResponse(
             _stream_sse(real_model, messages_final, req, routing_meta, user_id,
                         routing_method=routing_method, routing_reason=routing_reason,
-                        requested=req.model, t0=t0),
+                        requested=req.model, t0=t0,
+                        suppress_reasoning=suppress_reasoning,
+                        skip_memory=_is_system_request),
             media_type="text/event-stream",
             headers={
                 "X-GPTHub-Model": real_model,
@@ -170,12 +186,12 @@ async def chat_completions(request: Request):
     # --- Merge reasoning_content into content (MWS-specific field) ---
     msg = completion.choices[0].message
     raw_content = msg.content or ""
-    reasoning = getattr(msg, "reasoning_content", None) or ""
+    reasoning = (getattr(msg, "reasoning_content", None) or "") if not suppress_reasoning else ""
     if reasoning and not raw_content:
         # Model only emitted reasoning, no final answer — treat reasoning as answer
         combined = reasoning
     elif reasoning:
-        # Wrap reasoning in <think> so the parser renders it as <details>
+        # Wrap reasoning in <think> so the parser renders it as a blockquote
         combined = f"<think>{reasoning}</think>\n\n{raw_content}"
     else:
         combined = raw_content
@@ -186,7 +202,8 @@ async def chat_completions(request: Request):
     assistant_text = combined  # raw (pre-parse) for memory
 
     # --- Analytics + Memory (fire-and-forget) ---
-    asyncio.create_task(_memorize(user_id, messages_raw, assistant_text))
+    if not _is_system_request:
+        asyncio.create_task(_memorize(user_id, messages_raw, assistant_text))
     asyncio.create_task(_record_analytics(
         user_id=user_id, requested=req.model, routed_to=real_model,
         method=routing_method, reason=routing_reason, latency_ms=latency_ms,
@@ -217,6 +234,8 @@ async def _stream_sse(
     routing_reason: str = "",
     requested: str = "",
     t0: float = 0.0,
+    suppress_reasoning: bool = False,
+    skip_memory: bool = False,
 ) -> AsyncIterator[bytes]:
     """Yield SSE bytes from MWS streaming response."""
     # NOTE: do NOT send a routing metadata chunk — OpenWebUI cannot parse
@@ -242,8 +261,13 @@ async def _stream_sse(
 
             # MWS models emit reasoning in delta.reasoning_content (content=null).
             # Convert to <think>…</think> so StreamingReasoningParser can wrap it.
+            # When suppress_reasoning=True (non-reasoning virtual models), skip the thinking
+            # and only forward the final content.
             content: str | None = delta_obj.content
-            reasoning: str | None = getattr(delta_obj, "reasoning_content", None)
+            reasoning: str | None = (
+                getattr(delta_obj, "reasoning_content", None)
+                if not suppress_reasoning else None
+            )
 
             if reasoning and content is None:
                 # Inject opening <think> tag on first reasoning chunk
@@ -256,6 +280,9 @@ async def _stream_sse(
                 # First real-content chunk after reasoning phase — close <think>
                 in_reasoning = False
                 text_to_feed = "</think>" + content
+            elif suppress_reasoning and content is None and getattr(delta_obj, "reasoning_content", None):
+                # Suppressed reasoning chunk — skip entirely, wait for actual content
+                continue
             elif content is not None:
                 text_to_feed = content
             else:
@@ -308,7 +335,7 @@ async def _stream_sse(
         user_id=user_id, requested=requested, routed_to=model,
         method=routing_method, reason=routing_reason, latency_ms=latency_ms,
     ))
-    if collected_raw:
+    if collected_raw and not skip_memory:
         assistant_text = "".join(collected_raw)
         asyncio.create_task(_memorize(user_id, messages, assistant_text))
 
@@ -359,6 +386,35 @@ def _strip_extra_fields(data: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# System request detection (OpenWebUI internal calls — skip memory)
+# ---------------------------------------------------------------------------
+
+import re as _re_sys
+
+_SYSTEM_REQUEST_PATTERNS = [
+    # OpenWebUI auto-generates chat titles and tags after first message
+    r"(?i)(generate|create|write).{0,30}(title|tag|heading|name).{0,30}(chat|conversation|message)",
+    r"(?i)(придумай|создай|напиши|сгенерируй).{0,30}(заголовок|название|тег).{0,30}(чат|диалог|беседа)",
+    r"(?i)^(here is|here are).{0,20}(tag|title)",
+    r"(?i)(short title|краткий заголовок|короткий заголовок).{0,30}(emoji|эмодзи)",
+    r"(?i)generate (a )?(concise|short|brief) title",
+]
+
+
+def _detect_system_request(messages: list[dict]) -> bool:
+    """Return True if this looks like an internal OpenWebUI system request (title/tag generation)."""
+    for msg in messages:
+        if msg.get("role") not in ("user", "system"):
+            continue
+        content = msg.get("content") or ""
+        if isinstance(content, str):
+            for pat in _SYSTEM_REQUEST_PATTERNS:
+                if _re_sys.search(pat, content):
+                    return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Memory helpers
 # ---------------------------------------------------------------------------
 
@@ -370,7 +426,7 @@ async def _inject_memories(messages: list[dict], user_id: str) -> list[dict]:
     try:
         manager = await get_manager()
         query = _extract_text(messages)
-        memories = await manager.search_memories(user_id, query, top_k=5)
+        memories = await manager.search_memories(user_id, query, top_k=3, min_score=0.50)
     except Exception:
         logger.warning("Memory inject failed, continuing without memories", exc_info=True)
         return messages

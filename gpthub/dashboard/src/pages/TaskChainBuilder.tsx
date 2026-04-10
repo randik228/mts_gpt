@@ -52,8 +52,7 @@ const TEMPLATES: Template[] = [
     steps: [
       { type: "chat", model: "deepseek-r1-distill-qwen-32b",
         input_template: "Проанализируй документ. Найди ключевые тезисы, противоречия и выводы:\n\n{{document}}",
-        output_key: "analysis",
-        system: "Ты аналитик. Рассуждай пошагово внутри <think>...</think>." },
+        output_key: "analysis" },
       { type: "chat", model: "gpt-oss-20b",
         input_template: "На основе анализа составь краткое резюме (5–7 пунктов):\n\n{{analysis}}",
         output_key: "summary" },
@@ -75,7 +74,7 @@ const TEMPLATES: Template[] = [
       { type: "chat", model: "deepseek-r1-distill-qwen-32b",
         input_template: "Спланируй архитектуру реализации:\n\n{{requirements}}",
         output_key: "plan",
-        system: "Ты архитектор. Рассуждай пошагово." },
+      },
       { type: "chat", model: "qwen3-coder-480b-a35b",
         input_template: "Реализуй план:\n\n{{plan}}\n\nТребования: {{requirements}}",
         output_key: "code" },

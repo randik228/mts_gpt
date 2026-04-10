@@ -89,7 +89,7 @@ TEMPLATES: list[dict] = [
         "steps": [
             {
                 "type": "transcribe",
-                "model": "whisper-turbo-local-preview",
+                "model": "whisper-turbo-local",
                 "input_template": "{{audio_path}}",
                 "output_key": "transcription",
             },

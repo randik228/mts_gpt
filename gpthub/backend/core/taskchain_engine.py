@@ -33,6 +33,9 @@ from typing import AsyncGenerator
 
 from core.mws_client import chat_stream, embed, get_client
 
+# Strip <think>...</think> blocks from model output before storing in context
+_THINK_STRIP_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
 # ---------------------------------------------------------------------------
 # Types
 # ---------------------------------------------------------------------------
@@ -129,7 +132,10 @@ class TaskChainEngine:
             raise StepError(str(e)) from e
 
         full_output = "".join(collected)
-        yield _ev("step_done", step=idx, output_key=output_key, output=full_output)
+        # Strip <think>...</think> reasoning blocks from output before storing in context.
+        # Reasoning content is useful for the UI log but should not pollute downstream steps.
+        clean_output = _THINK_STRIP_RE.sub("", full_output).strip()
+        yield _ev("step_done", step=idx, output_key=output_key, output=clean_output)
 
     async def _run_transcribe(self, step: dict, context: dict) -> str:
         """

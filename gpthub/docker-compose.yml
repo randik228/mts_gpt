@@ -1,4 +1,21 @@
 services:
+  proxy:
+    build: ./backend
+    ports: ["8000:8000"]
+    environment:
+      - MWS_API_BASE=https://api.gpt.mws.ru/v1
+      - MWS_API_KEY=${MWS_API_KEY}
+      - DEFAULT_MODEL=gpt-oss-20b
+      - EMBEDDING_MODEL=bge-m3
+    volumes: [memory_data:/app/data]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   open-webui:
     image: ghcr.io/open-webui/open-webui:v0.6.5
     ports: ["3000:8080"]
@@ -12,17 +29,10 @@ services:
       - ./openwebui-custom.css:/app/custom-theme.css:ro
       - ./openwebui-entrypoint.sh:/app/gpthub-entrypoint.sh:ro
     entrypoint: ["bash", "/app/gpthub-entrypoint.sh"]
-    depends_on: [proxy]
-
-  proxy:
-    build: ./backend
-    ports: ["8000:8000"]
-    environment:
-      - MWS_API_BASE=https://api.gpt.mws.ru/v1
-      - MWS_API_KEY=${MWS_API_KEY}
-      - DEFAULT_MODEL=gpt-oss-20b
-      - EMBEDDING_MODEL=bge-m3
-    volumes: [memory_data:/app/data]
+    depends_on:
+      proxy:
+        condition: service_healthy
+    restart: unless-stopped
 
   dashboard:
     build: ./dashboard
@@ -30,7 +40,10 @@ services:
     environment:
       - PROXY_URL=http://proxy:8000
       - VITE_PROXY_URL=
-    depends_on: [proxy]
+    depends_on:
+      proxy:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   webui_data:

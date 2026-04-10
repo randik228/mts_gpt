@@ -1,6 +1,7 @@
 #!/bin/bash
 # GPTHub: inject custom CSS + JS vars into OpenWebUI index.html on every container start
-set -e
+# CSS injection is optional — failures here must never prevent OpenWebUI from starting
+set +e
 
 CSS_FILE="/app/custom-theme.css"
 INDEX="/app/build/index.html"

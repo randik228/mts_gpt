@@ -51,6 +51,31 @@ CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
 # Embedding dimension for bge-m3
 _DIM = 1024
 
+# Patterns for trivial facts that pollute memory (language detection etc.)
+_TRIVIAL_PATTERNS = [
+    # Language facts
+    r"(?i)(user|пользователь).{0,30}(speaks?|говорит|пишет|общается).{0,30}(russian|english|русск|английск)",
+    r"(?i)(conversation|диалог|чат).{0,20}(in|на).{0,20}(russian|english|русск|английск)",
+    r"(?i)(user|пользователь).{0,20}(uses?|использует).{0,20}(russian|english|русск)",
+    r"(?i)^(user speaks|пользователь говорит|conversation is in|пользователь общается)",
+    # OpenWebUI internal requests (title generation, tags, etc.)
+    r"(?i)(пользователь|user).{0,40}(теги|tags|заголовок|title|название чата|chat title)",
+    r"(?i)(просит|asks?|requests?).{0,40}(сгенерир|generat).{0,40}(теги|tags|заголовок|title)",
+    r"(?i)(история чата|chat history|чат содержит|conversation contains)",
+    # Overly generic single-request facts
+    r"(?i)^пользователь (просит|хочет|запрашивает|asks?).{0,50}(написать код|write code|изображение|image|картинк)",
+]
+
+import re as _re
+
+def _is_trivial_fact(fact: str) -> bool:
+    """Return True if the fact is low-signal and should not be stored."""
+    f = fact.strip()
+    for pattern in _TRIVIAL_PATTERNS:
+        if _re.search(pattern, f):
+            return True
+    return False
+
 # Sentinel: index row → memory id (stored in a helper table so it survives restarts)
 _FAISS_MAP_DDL = """
 CREATE TABLE IF NOT EXISTS faiss_map (
@@ -264,7 +289,19 @@ class MemoryManager:
 
         saved: list[str] = []
         for fact in facts:
+            # Filter out trivial / low-signal facts
+            if _is_trivial_fact(fact):
+                logger.debug("Skipping trivial fact: %s", fact)
+                continue
+            # Skip very short facts (noise)
+            if len(fact.strip()) < 20:
+                continue
             try:
+                # Deduplication: skip if nearly identical memory already exists
+                is_dup = await self._is_duplicate(user_id, fact)
+                if is_dup:
+                    logger.debug("Skipping duplicate fact: %s", fact)
+                    continue
                 await self.save_memory(
                     user_id,
                     fact,
@@ -277,6 +314,13 @@ class MemoryManager:
 
         logger.info("extract_and_save: saved %d/%d facts for user=%s", len(saved), len(facts), user_id)
         return saved
+
+    async def _is_duplicate(self, user_id: str, fact: str, threshold: float = 0.92) -> bool:
+        """Return True if a very similar memory already exists for this user."""
+        if self._index.ntotal == 0:
+            return False
+        existing = await self.search_memories(user_id, fact, top_k=1, min_score=threshold)
+        return len(existing) > 0
 
     # ------------------------------------------------------------------
     # Dashboard CRUD

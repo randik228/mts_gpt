@@ -61,11 +61,6 @@ _KEYWORD_RULES: list[tuple[re.Pattern, str, str]] = [
         re.I,
     ), "Qwen3-235B-A22B-Instruct-2507-FP8", "creative/complex request"),
 
-    # МТС
-    (re.compile(
-        r"\b(мтс|mts|тариф|тарифн|услуга\s+мтс|поддержк[аи]\s+мтс)\b",
-        re.I,
-    ), "T-pro-it-1.0", "MTS-specific request"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -148,14 +143,14 @@ async def route(
             return RoutingDecision(
                 model=_VIRTUAL_MAP[virtual_hint],
                 reason=f"user selected {virtual_hint}",
-                method="multimodal",
+                method="virtual",
             )
 
     # 1. Multimodal signals
     if has_audio:
-        return RoutingDecision("whisper-turbo-local-preview", "audio attachment", "multimodal")
+        return RoutingDecision("whisper-turbo-local", "audio attachment", "multimodal")
     if has_image:
-        return RoutingDecision("qwen2.5-vl-32b-instruct-awq", "image attachment", "multimodal")
+        return RoutingDecision("qwen3-vl-30b-a3b-instruct", "image attachment", "multimodal")
 
     # Extract plain text from messages for classification
     text = _extract_text(messages)
@@ -194,8 +189,9 @@ async def _embedding_route(text: str) -> RoutingDecision | None:
 
     logger.debug("Smart Router embedding scores: %s", scores)
 
-    # Only trust embedding result if it's clearly above default threshold
-    if best_score < 0.55 or best_model == "gpt-oss-20b":
+    # Only trust embedding result if it's confidently above threshold.
+    # 0.70 avoids false positives on general questions that weakly resemble a category.
+    if best_score < 0.70 or best_model == "gpt-oss-20b":
         return None
 
     return RoutingDecision(best_model, f"embedding similarity {best_score:.2f}", "embedding")
