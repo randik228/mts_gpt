@@ -22,8 +22,8 @@ Three services in one `docker compose up`:
 ### 1. Clone
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/gpthub.git
-cd gpthub
+git clone https://github.com/randik228/mts_gpt.git
+cd mts_gpt/gpthub
 ```
 
 ### 2. Create `.env`
@@ -35,7 +35,7 @@ cp .env.example .env
 Open `.env` and paste your key:
 
 ```env
-MWS_API_KEY=your_api_key_here
+MWS_API_KEY=sk-ewgiaPC3A6pPDYHwR8siVA
 ```
 
 ### 3. Start
@@ -182,3 +182,7 @@ lsof -i :3000                  # Mac/Linux
 ## License
 
 MIT
+
+---
+
+> Built for [True Tech Hack 2026](https://truetechhack.ru) by [@randik228](https://github.com/randik228)
