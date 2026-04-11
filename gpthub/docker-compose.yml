@@ -25,6 +25,8 @@ services:
       - OPENAI_API_KEY=${MWS_API_KEY}
       - WEBUI_AUTH=false
       - HF_HUB_DISABLE_XET=1
+      - ENABLE_WEB_SEARCH=true
+      - WEB_SEARCH_ENGINE=duckduckgo
     volumes:
       - webui_data:/app/backend/data
       - ./openwebui-custom.css:/app/custom-theme.css:ro

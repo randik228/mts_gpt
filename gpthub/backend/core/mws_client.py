@@ -151,15 +151,76 @@ async def list_models() -> list[str]:
 # ---------------------------------------------------------------------------
 
 _EXTRACT_FACTS_PROMPT = """\
-Из следующего диалога извлеки ключевые факты о пользователе или контексте задачи.
-Верни только список фактов — по одному на строку, без нумерации.
-Если фактов нет, верни пустую строку.
+Проанализируй диалог и извлеки ТОЛЬКО важные долгосрочные факты о пользователе.
 
-ВАЖНО: всегда пиши факты только на русском языке, независимо от языка диалога.
-Write facts in Russian language only, even if the conversation is in English.
+СОХРАНЯЙ (важно для будущих диалогов):
+- Имя, возраст, профессия, место работы/учёбы
+- Предпочтения в общении (формальное/неформальное, краткие/подробные ответы)
+- Хобби, интересы, любимые вещи
+- Навыки и уровень знаний (программист, студент, учёный и т.д.)
+- Личные обстоятельства (семья, город, часовой пояс)
+- Постоянные предпочтения ("люблю Python", "предпочитаю краткие ответы")
+
+НЕ СОХРАНЯЙ (мусор, одноразовые запросы):
+- Что пользователь искал в интернете
+- Какие задачи решал (примеры, уравнения)
+- Разовые вопросы ("какая погода", "кто победил")
+- Тема текущего разговора (это и так видно из истории)
+- Запросы на генерацию кода/текста/изображений
+- Что пользователь тестировал или проверял
+- Факты о языке общения
+
+Формат: по одному факту на строку, без нумерации.
+Каждый факт должен быть самодостаточным предложением (не одно слово).
+Примеры хороших фактов: "Пользователя зовут Александр", "Работает программистом", "Предпочитает краткие ответы"
+Если важных фактов нет — верни пустую строку.
+Пиши только на русском языке.
 
 Диалог:
 {dialogue}"""
+
+
+async def generate_image(prompt: str, *, model: str = "qwen-image-lightning") -> str:
+    """
+    Try to generate an image via MWS API.
+    First try /images/generations, then fallback to chat completions.
+    Returns markdown with image URL/base64.
+    """
+    client = get_client()
+
+    # Attempt 1: OpenAI-compatible images endpoint
+    try:
+        response = await client.images.generate(
+            model=model,
+            prompt=prompt,
+            n=1,
+            size="1024x1024",
+        )
+        if response.data:
+            img = response.data[0]
+            url = img.url or ""
+            b64 = getattr(img, "b64_json", None) or ""
+            if url:
+                return f"![Сгенерированное изображение]({url})"
+            elif b64:
+                return f"![Сгенерированное изображение](data:image/png;base64,{b64})"
+    except Exception as e:
+        logger.warning("images.generate failed (model=%s): %s", model, e)
+
+    # Attempt 2: Use chat completions with image model
+    try:
+        completion = await chat_complete(
+            model=model,
+            messages=[{"role": "user", "content": f"Generate an image: {prompt}"}],
+            temperature=0.7,
+        )
+        content = completion.choices[0].message.content or ""
+        if content:
+            return content
+    except Exception as e:
+        logger.warning("chat_complete with image model failed: %s", e)
+
+    raise RuntimeError(f"Модель {model} не поддерживает генерацию изображений через доступные API endpoints")
 
 
 async def extract_facts(messages: list[dict]) -> list[str]:

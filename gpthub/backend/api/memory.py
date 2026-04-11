@@ -102,6 +102,23 @@ async def get_memory(memory_id: str):
     return memory
 
 
+@router.delete("")
+async def delete_all_memories(
+    user_id: str = Query("default"),
+    scope: str | None = Query(None),
+):
+    """
+    Bulk delete all memories for a user (or all team memories if scope=team).
+    """
+    manager = await get_manager()
+    memories = await manager.list_memories(user_id, scope=scope, limit=1000)
+    count = 0
+    for m in memories:
+        await manager.delete_memory(m["id"])
+        count += 1
+    return {"status": "deleted", "count": count}
+
+
 @router.delete("/{memory_id}")
 async def delete_memory(memory_id: str):
     manager = await get_manager()

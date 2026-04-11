@@ -51,19 +51,30 @@ CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
 # Embedding dimension for bge-m3
 _DIM = 1024
 
-# Patterns for trivial facts that pollute memory (language detection etc.)
+# Patterns for trivial facts that pollute memory
 _TRIVIAL_PATTERNS = [
     # Language facts
     r"(?i)(user|пользователь).{0,30}(speaks?|говорит|пишет|общается).{0,30}(russian|english|русск|английск)",
     r"(?i)(conversation|диалог|чат).{0,20}(in|на).{0,20}(russian|english|русск|английск)",
-    r"(?i)(user|пользователь).{0,20}(uses?|использует).{0,20}(russian|english|русск)",
     r"(?i)^(user speaks|пользователь говорит|conversation is in|пользователь общается)",
-    # OpenWebUI internal requests (title generation, tags, etc.)
-    r"(?i)(пользователь|user).{0,40}(теги|tags|заголовок|title|название чата|chat title)",
+    # OpenWebUI internal requests
+    r"(?i)(пользователь|user).{0,40}(теги|tags|заголовок|title|название чата)",
     r"(?i)(просит|asks?|requests?).{0,40}(сгенерир|generat).{0,40}(теги|tags|заголовок|title)",
     r"(?i)(история чата|chat history|чат содержит|conversation contains)",
-    # Overly generic single-request facts
-    r"(?i)^пользователь (просит|хочет|запрашивает|asks?).{0,50}(написать код|write code|изображение|image|картинк)",
+    # One-time tasks / queries (NOT about the user)
+    r"(?i)^пользователь (просит|хочет|запрашивает|спрашивает|ищет|искал|решал|решает|проверя)",
+    r"(?i)^пользователь (задал|задаёт|отправил|написал|спросил|попросил|тестирует|тестировал)",
+    r"(?i)(спрашивает|интересуется|ищет).{0,30}(информаци|данные|результат|ответ|новост|погод|курс)",
+    r"(?i)(решал?|вычисл|считал?).{0,30}(задач[аеу]|пример|уравнени|умножени|деление|сложени)",
+    r"(?i)(задач[аеу]|уравнени|вычислени|умножени)\b",
+    r"(?i)(веб.поиск|web.search|искал в интернете|нашёл в интернете|результат.* поиска)",
+    r"(?i)(генераци[яю]|сгенерировал|нарисовал|создал изображение|image generat)",
+    r"(?i)(тестиру|проверя|работаешь|работает ли|test|check)",
+    r"(?i)(код|code|script|function|функци).{0,20}(написал|создал|запросил|просит)",
+    r"(?i)^(the user|user asked|user wants|user is asking|user requested)",
+    # Facts about the conversation itself, not the person
+    r"(?i)(в (этом|данном|текущем) (чате|диалоге|разговоре)|in this (chat|conversation))",
+    r"(?i)(обсуждали|обсуждает|discussed|talking about)",
 ]
 
 import re as _re
@@ -299,13 +310,16 @@ class MemoryManager:
             return []
 
         saved: list[str] = []
+        logger.info("extract_and_save: extracted %d raw facts: %s",
+                     len(facts), [f[:50] for f in facts])
         for fact in facts:
             # Filter out trivial / low-signal facts
             if _is_trivial_fact(fact):
-                logger.debug("Skipping trivial fact: %s", fact)
+                logger.info("  SKIP trivial: %s", fact[:60])
                 continue
-            # Skip very short facts (noise)
-            if len(fact.strip()) < 20:
+            # Skip very short facts (noise) — but allow names (5+ chars)
+            if len(fact.strip()) < 5:
+                logger.info("  SKIP short: %s", fact[:60])
                 continue
             try:
                 # Deduplication: skip if nearly identical memory already exists
@@ -372,17 +386,26 @@ class MemoryManager:
 
     async def delete_memory(self, memory_id: str) -> bool:
         """
-        Remove a memory from SQLite.
-        Note: FAISS does not support deletion from IndexFlatIP — the vector
-        remains but will never be matched again since its SQLite row is gone.
+        Remove a memory from SQLite (both memories and faiss_map tables).
+        Note: FAISS IndexFlatIP doesn't support vector deletion — the vector
+        remains but becomes unreachable since its faiss_map entry is gone.
         Returns True if a row was deleted.
         """
         async with aiosqlite.connect(self._db_path) as db:
             cursor = await db.execute(
                 "DELETE FROM memories WHERE id = ?", (memory_id,)
             )
+            # Also remove from faiss_map so the orphaned vector can't be found
+            await db.execute(
+                "DELETE FROM faiss_map WHERE memory_id = ?", (memory_id,)
+            )
             await db.commit()
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+
+        if deleted:
+            logger.info("Deleted memory %s (SQLite + faiss_map)", memory_id)
+
+        return deleted
 
     async def get_memory(self, memory_id: str) -> dict | None:
         async with aiosqlite.connect(self._db_path) as db:

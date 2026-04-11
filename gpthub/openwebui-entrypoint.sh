@@ -44,6 +44,15 @@ js = '''<script id=\"gpthub-vars\">(function(){
   apply();
   document.addEventListener('DOMContentLoaded', apply);
   [100, 500, 1500].forEach(function(t){ setTimeout(apply, t); });
+
+  // Hide Code Interpreter button (non-functional in GPTHub)
+  function hideCI(){
+    document.querySelectorAll(String.fromCharCode(98,117,116,116,111,110)).forEach(function(b){
+      var t=b.textContent||b.innerText;
+      if(t.indexOf(String.fromCharCode(1085,1090,1077,1088,1087,1088,1077,1090,1072,1090,1086,1088))>-1)b.style.cssText=String.fromCharCode(100,105,115,112,108,97,121,58,110,111,110,101,33,105,109,112,111,114,116,97,110,116);
+    });
+  }
+  new MutationObserver(hideCI).observe(document.documentElement,{childList:true,subtree:true});
 })();</script>
 '''
 
@@ -61,6 +70,106 @@ print('[GPTHub] Injected CSS (' + str(len(css)) + ' bytes) + JS vars')
 else
   echo "[GPTHub] No custom CSS or index.html found, skipping"
 fi
+
+# Register auto-search filter in background (waits for OpenWebUI to be ready)
+(
+  FILTER_CODE='"""
+title: Auto Web Search
+description: Automatically enables OpenWebUI native web search when the query needs current information
+"""
+from typing import Optional
+
+
+class Filter:
+    def inlet(self, body: dict, __user__: Optional[dict] = None) -> dict:
+        messages = body.get("messages", [])
+        if not messages:
+            return body
+        last_user_msg = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            content = part.get("text", "")
+                            break
+                last_user_msg = str(content)
+                break
+        if len(last_user_msg.strip()) < 15:
+            return body
+        if body.get("features", {}).get("web_search"):
+            return body
+        SEARCH_KEYWORDS = [
+            "найди", "поищи", "поиск", "найти",
+            "актуальный", "актуально", "актуальн",
+            "последние новости", "новости о ", "свежие",
+            "погода", "курс валют", "курс доллара", "цена на ",
+            "сколько стоит", "где купить",
+            "что сейчас", "что происходит", "когда выйдет", "когда выходит",
+            "рейтинг", "в интернете", "в сети",
+            "search for", "find online", "latest news", "current price",
+        ]
+        text = last_user_msg.lower()
+        if any(kw in text for kw in SEARCH_KEYWORDS):
+            if "features" not in body:
+                body["features"] = {}
+            body["features"]["web_search"] = True
+        return body
+'
+  for i in $(seq 1 40); do
+    sleep 5
+    python3 -c "
+import json, urllib.request, sys, os
+
+code = os.environ.get('FILTER_CODE', '')
+try:
+    req = urllib.request.Request(
+        'http://localhost:8080/api/v1/auths/signin',
+        data=json.dumps({'email':'admin@localhost','password':'admin'}).encode(),
+        headers={'Content-Type':'application/json'}
+    )
+    resp = urllib.request.urlopen(req, timeout=3)
+    token = json.loads(resp.read())['token']
+except Exception:
+    sys.exit(1)
+
+headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+
+# Check if filter exists and is correct
+try:
+    req2 = urllib.request.Request('http://localhost:8080/api/v1/functions/id/auto_web_search', headers=headers)
+    resp2 = urllib.request.urlopen(req2, timeout=3)
+    fdata = json.loads(resp2.read())
+    if fdata.get('is_active') and fdata.get('is_global'):
+        print('OK')
+        sys.exit(0)
+except:
+    pass
+
+# Create or update filter
+payload = json.dumps({'id':'auto_web_search','name':'Auto Web Search','content':code,'meta':{'description':'Auto web search filter','manifest':{}},'is_active':True,'is_global':True}).encode()
+try:
+    req3 = urllib.request.Request('http://localhost:8080/api/v1/functions/create', data=payload, headers=headers, method='POST')
+    urllib.request.urlopen(req3, timeout=5)
+except:
+    req3b = urllib.request.Request('http://localhost:8080/api/v1/functions/id/auto_web_search/update', data=payload, headers=headers, method='POST')
+    try: urllib.request.urlopen(req3b, timeout=5)
+    except: pass
+
+# Toggle active if needed
+try:
+    req4 = urllib.request.Request('http://localhost:8080/api/v1/functions/id/auto_web_search', headers=headers)
+    fdata2 = json.loads(urllib.request.urlopen(req4, timeout=3).read())
+    if not fdata2.get('is_active'):
+        req5 = urllib.request.Request('http://localhost:8080/api/v1/functions/id/auto_web_search/toggle', data=b'{}', headers=headers, method='POST')
+        urllib.request.urlopen(req5, timeout=5)
+except: pass
+
+print('REGISTERED')
+" FILTER_CODE="$FILTER_CODE" 2>/dev/null && echo "[GPTHub] Auto-search filter registered." && break
+  done
+) &
 
 # Run the original OpenWebUI entrypoint
 exec bash start.sh

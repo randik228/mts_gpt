@@ -21,6 +21,7 @@ from core.smart_router import route as smart_route, detect_multimodal, RoutingDe
 from core.memory_manager import get_manager
 from core.reasoning_parser import StreamingReasoningParser, parse as parse_reasoning, build_reasoning_system_prompt, NATIVE_REASONING_MODELS
 from core.analytics_store import get_store as get_analytics
+from core.web_search import fetch_page, detect_urls, format_page_content
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,14 +42,26 @@ def _model_object(model_id: str) -> dict:
 # GET /v1/models
 # ---------------------------------------------------------------------------
 
+# Models that should NOT appear in the chat model selector
+# (non-chat models, or models unavailable on MWS)
+_HIDDEN_MODELS = {
+    "bge-m3",                # embedding model, not for chat
+    "whisper-turbo-local",   # audio transcription only
+    "whisper-medium",        # audio transcription only
+    "qwen-image-lightning",  # image generation only (handled by Smart Router)
+    "qwen-image",            # image generation only
+    "T-pro-it-1.0",          # not available on MWS API for our key
+}
+
+
 @router.get("/v1/models")
 async def list_models():
     """
-    Returns virtual routing aliases first, then all real MWS models.
-    OpenWebUI renders these in the model dropdown.
+    Returns virtual routing aliases first, then chat-capable real MWS models.
+    Non-chat models (embeddings, audio, image-gen) are hidden from the dropdown.
     """
     entries = [_model_object(m) for m in VIRTUAL_MODELS]
-    entries += [_model_object(m) for m in MODELS]
+    entries += [_model_object(m) for m in MODELS if m not in _HIDDEN_MODELS]
     return {"object": "list", "data": entries}
 
 
@@ -146,6 +159,14 @@ async def chat_completions(request: Request):
         else await _inject_memories(messages_raw, user_id)
     )
 
+    # --- URL fetch inject (when user pastes a URL in message) ---
+    if not _is_system_request:
+        messages_with_mem = await _inject_url_context(messages_with_mem)
+
+    # --- Image generation special handling ---
+    if real_model in ("qwen-image-lightning", "qwen-image"):
+        return await _handle_image_generation(req, messages_raw, real_model, routing_method, routing_reason, user_id)
+
     # --- Reasoning system prompt inject ---
     messages_final = _inject_reasoning_prompt(real_model, messages_with_mem)
 
@@ -178,8 +199,35 @@ async def chat_completions(request: Request):
             max_tokens=req.max_tokens,
         )
     except Exception as e:
-        logger.exception("MWS error (non-stream)")
-        raise HTTPException(status_code=502, detail=f"Upstream error: {e}")
+        logger.exception("MWS error (non-stream) model=%s", real_model)
+        # Return a user-friendly error as a normal chat response (not HTTP error)
+        # This prevents OpenWebUI from showing raw JSON error + freezing
+        err_msg = str(e)
+        if "Invalid model name" in err_msg:
+            friendly = f"⚠️ Модель `{real_model}` недоступна на сервере MWS. Попробуйте другую модель."
+        elif "404" in err_msg:
+            friendly = f"⚠️ Модель `{real_model}` не найдена. Возможно, она временно недоступна."
+        elif "500" in err_msg:
+            friendly = f"⚠️ Внутренняя ошибка сервера при обращении к модели `{real_model}`. Попробуйте позже."
+        else:
+            friendly = f"⚠️ Ошибка при обращении к модели `{real_model}`: {err_msg[:200]}"
+
+        return JSONResponse(content={
+            "id": f"gpthub-err-{int(time.time())}",
+            "object": "chat.completion",
+            "model": real_model,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": friendly},
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }, headers={
+            "X-GPTHub-Model": real_model,
+            "X-GPTHub-Requested-Model": req.model,
+            "X-GPTHub-Routing-Method": routing_method,
+            "X-GPTHub-Routing-Reason": routing_reason,
+        })
 
     latency_ms = (time.time() - t0) * 1000
 
@@ -324,8 +372,10 @@ async def _stream_sse(
 
     except Exception as e:
         logger.exception("MWS error (stream)")
-        err = {"error": {"message": str(e), "type": "upstream_error"}}
-        yield f"data: {json.dumps(err)}\n\n".encode()
+        # Emit error as a valid delta chunk so OpenWebUI doesn't freeze
+        err_chunk = _make_delta_chunk(model, "error", f"\n\n⚠️ Ошибка: {e}")
+        err_chunk["choices"][0]["finish_reason"] = "stop"
+        yield f"data: {json.dumps(err_chunk, ensure_ascii=False)}\n\n".encode()
     finally:
         yield b"data: [DONE]\n\n"
 
@@ -434,8 +484,9 @@ async def _inject_memories(messages: list[dict], user_id: str) -> list[dict]:
     if not memories:
         return messages
 
-    mem_block = "Ты помнишь следующее о пользователе и контексте:\n" + "\n".join(
-        f"- {m}" for m in memories
+    mem_block = (
+        "Контекст о пользователе (используй естественно, НЕ упоминай что у тебя есть память/заметки):\n"
+        + "\n".join(f"- {m}" for m in memories)
     )
 
     # Prepend to existing system message or insert a new one at position 0
@@ -503,3 +554,159 @@ async def embeddings(req: EmbedRequest):
     }
 
 
+# ---------------------------------------------------------------------------
+# URL Fetch injection (when user pastes a link in chat)
+# ---------------------------------------------------------------------------
+
+def _last_user_text(messages: list[dict]) -> str:
+    """Extract text from the last user message only."""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return content
+            elif isinstance(content, list):
+                return " ".join(
+                    p.get("text", "") for p in content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                )
+    return ""
+
+
+async def _inject_url_context(messages: list[dict]) -> list[dict]:
+    """
+    If the user's last message contains URLs, fetch their content and inject
+    into the system prompt so the model can read and discuss the page.
+    Web search is handled natively by OpenWebUI's built-in search feature.
+    """
+    user_text = _last_user_text(messages)
+    if not user_text.strip():
+        return messages
+
+    urls = detect_urls(user_text)
+    context_blocks: list[str] = []
+    for url in urls[:2]:
+        try:
+            page_text = await fetch_page(url, max_chars=5000)
+            if page_text and not page_text.startswith("[Ошибка"):
+                context_blocks.append(format_page_content(url, page_text))
+                logger.info("Fetched page content from %s (%d chars)", url, len(page_text))
+        except Exception:
+            logger.warning("URL fetch failed for %s", url, exc_info=True)
+
+    if not context_blocks:
+        return messages
+
+    web_context = "\n\n".join(context_blocks)
+    result = list(messages)
+    if result and result[0].get("role") == "system":
+        existing = result[0].get("content") or ""
+        result[0] = {**result[0], "content": f"{existing}\n\n{web_context}".strip()}
+    else:
+        result.insert(0, {"role": "system", "content": web_context})
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Image Generation handler
+# ---------------------------------------------------------------------------
+
+async def _handle_image_generation(
+    req: "ChatRequest",
+    messages: list[dict],
+    model: str,
+    routing_method: str,
+    routing_reason: str,
+    user_id: str,
+) -> JSONResponse:
+    """
+    Handle image generation requests.
+    Tries MWS images endpoint; if unsupported, returns clear error.
+    """
+    # Extract the image prompt from user's last message
+    prompt = ""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            prompt = content if isinstance(content, str) else str(content)
+            break
+
+    try:
+        result = await mws_client.generate_image(prompt, model=model)
+    except Exception as e:
+        logger.warning("Image generation failed: %s", e)
+        # Return error as valid chat completion response
+        result = (
+            f"⚠️ Генерация изображений временно недоступна.\n\n"
+            f"Модель `{model}` не поддерживает генерацию через текущий API.\n"
+            f"Ошибка: {e}"
+        )
+
+    return JSONResponse(content={
+        "id": f"gpthub-img-{int(time.time())}",
+        "object": "chat.completion",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": result},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }, headers={
+        "X-GPTHub-Model": model,
+        "X-GPTHub-Requested-Model": req.model,
+        "X-GPTHub-Routing-Method": routing_method,
+        "X-GPTHub-Routing-Reason": routing_reason,
+    })
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/audio/transcriptions — proxy to MWS
+# ---------------------------------------------------------------------------
+
+@router.post("/v1/audio/transcriptions")
+async def audio_transcriptions(request: Request):
+    """
+    Proxy audio transcription requests to MWS Whisper API.
+    Accepts multipart form data with 'file' field.
+    """
+    try:
+        form = await request.form()
+        audio_file = form.get("file")
+        model = form.get("model", "whisper-turbo-local")
+
+        if audio_file is None:
+            raise HTTPException(status_code=400, detail="Missing 'file' field")
+
+        # Read file content
+        content = await audio_file.read()
+
+        # Size check (500MB max)
+        if len(content) > 500 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail="Файл слишком большой. Максимальный размер: 500MB",
+            )
+
+        import httpx as _httpx
+        import os
+
+        base_url = os.environ.get("MWS_API_BASE", "https://api.gpt.mws.ru/v1")
+        api_key = os.environ["MWS_API_KEY"]
+
+        async with _httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(
+                f"{base_url}/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                files={"file": (audio_file.filename or "audio.wav", content)},
+                data={"model": model},
+            )
+            resp.raise_for_status()
+            return JSONResponse(content=resp.json())
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Audio transcription error")
+        raise HTTPException(status_code=502, detail=f"Ошибка транскрипции: {e}")

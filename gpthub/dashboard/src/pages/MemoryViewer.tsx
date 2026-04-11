@@ -167,13 +167,26 @@ export default function MemoryViewer() {
     }
   }
 
+  const [deletingAll, setDeletingAll] = useState(false);
+
   async function deleteAll() {
-    const label = scopeMode === "team" ? "командных" : `пользователя «${userId}»`;
-    if (!confirm(`Удалить все ${memories.length} воспоминаний ${label}?`)) return;
-    for (const m of memories) {
-      await fetch(`${PROXY}/api/memory/${m.id}`, { method: "DELETE" });
+    setDeletingAll(true);
+    try {
+      const scope = scopeMode === "team" ? "&scope=team" : "";
+      const res = await fetch(
+        `${PROXY}/api/memory?user_id=${encodeURIComponent(userId)}${scope}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        setMemories([]);
+      } else {
+        console.error("deleteAll response:", res.status, await res.text());
+      }
+    } catch (e) {
+      console.error("deleteAll failed:", e);
+    } finally {
+      setDeletingAll(false);
     }
-    setMemories([]);
   }
 
   const scopeGroups = memories.reduce<Record<string, number>>((acc, m) => {
@@ -305,8 +318,9 @@ export default function MemoryViewer() {
           </div>
           {memories.length > 0 && (
             <button className="btn btn-danger" onClick={deleteAll}
+                    disabled={deletingAll}
                     style={{ fontSize: 12, padding: "5px 12px" }}>
-              🗑 Удалить все
+              {deletingAll ? "⏳ Удаление..." : "🗑 Удалить все"}
             </button>
           )}
         </div>

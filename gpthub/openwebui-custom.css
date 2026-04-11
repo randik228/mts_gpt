@@ -1,11 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   GPTHub × MTS — OpenWebUI Theme v3
-   Built on real DOM class names from OpenWebUI v0.6.5 source
+   GPTHub × MTS — OpenWebUI Theme v4
+   Multi-theme compatible: Light, Dark, OLED Dark, Her
+   Dark-specific rules are scoped under html.dark
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-/* ── Custom tokens (color-gray-* set via JS inline styles in entrypoint) ── */
+/* ── Custom tokens (brand colors — theme-agnostic) ───────────────────── */
 
 :root {
   --mts:          #E30611;
@@ -22,7 +23,7 @@
   --shadow-lg:    0 8px 32px rgba(0,0,0,.5), 0 20px 60px rgba(0,0,0,.3);
 }
 
-/* ── Fonts ────────────────────────────────────────────────────────────── */
+/* ── Fonts (theme-agnostic) ──────────────────────────────────────────── */
 
 *, *::before, *::after {
   font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
@@ -33,7 +34,7 @@ code, code *, pre, pre *,
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace !important;
 }
 
-/* ── Brand stripe ─────────────────────────────────────────────────────── */
+/* ── Brand stripe (theme-agnostic) ───────────────────────────────────── */
 
 body::before {
   content: '';
@@ -45,9 +46,9 @@ body::before {
   pointer-events: none;
 }
 
-/* ── Ambient glow background ──────────────────────────────────────────── */
+/* ── Ambient glow background (dark only) ─────────────────────────────── */
 
-body::after {
+html.dark body::after {
   content: '';
   position: fixed;
   top: -50%; left: -50%;
@@ -64,45 +65,45 @@ body::after {
   to   { transform: translate(-4%, 2%); }
 }
 
-/* ── Base canvas ──────────────────────────────────────────────────────── */
+/* ── Base canvas (dark only) ─────────────────────────────────────────── */
 
-html, body { background: #0a0a0b !important; color: #f0f0f0 !important; }
+html.dark, html.dark body { background: #0a0a0b !important; color: #f0f0f0 !important; }
 
-/* ── Sidebar ─────────────────────────────────────────────────────────── */
+/* ── Sidebar (structural — theme-agnostic) ───────────────────────────── */
 
-#sidebar,
-[id="sidebar"],
-div[class*="sidebar"] {
-  background: rgba(10,10,12,.92) !important;
-  backdrop-filter: blur(24px) !important;
-  -webkit-backdrop-filter: blur(24px) !important;
-  border-right: 1px solid rgba(255,255,255,.06) !important;
-}
-
-/* Sidebar chat history items */
 #sidebar a, #sidebar button,
 div[class*="sidebar"] a,
 div[class*="sidebar"] button {
   border-radius: 10px !important;
   transition: background .15s, color .15s !important;
 }
-#sidebar a:hover, #sidebar button:hover,
-div[class*="sidebar"] a:hover,
-div[class*="sidebar"] button:hover {
+
+/* Sidebar (dark only) */
+html.dark #sidebar,
+html.dark [id="sidebar"],
+html.dark div[class*="sidebar"] {
+  background: rgba(10,10,12,.92) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border-right: 1px solid rgba(255,255,255,.06) !important;
+}
+
+html.dark #sidebar a:hover, html.dark #sidebar button:hover,
+html.dark div[class*="sidebar"] a:hover,
+html.dark div[class*="sidebar"] button:hover {
   background: rgba(255,255,255,.065) !important;
 }
 
-/* Active/selected chat item — OpenWebUI adds "dark:bg-gray-900" (no group-hover prefix)
-   on the currently open chat. Inactive items only have "dark:group-hover:bg-gray-950". */
-#sidebar a[class*="dark:bg-gray-900"],
-div[class*="sidebar"] a[class*="dark:bg-gray-900"] {
+/* Active/selected chat item */
+html.dark #sidebar a[class*="dark:bg-gray-900"],
+html.dark div[class*="sidebar"] a[class*="dark:bg-gray-900"] {
   background: rgba(227,6,17,.1) !important;
   border-left: 2px solid rgba(227,6,17,.45) !important;
   padding-left: 10px !important;
 }
 
 /* Sidebar section label ("Сегодня", "Вчера" …) */
-#sidebar .sticky, div[class*="sidebar"] .sticky {
+html.dark #sidebar .sticky, html.dark div[class*="sidebar"] .sticky {
   background: transparent !important;
   font-size: .67rem !important;
   font-weight: 700 !important;
@@ -114,10 +115,10 @@ div[class*="sidebar"] a[class*="dark:bg-gray-900"] {
 
 /* ── Landing page (new chat) ─────────────────────────────────────────── */
 
-/* Welcome heading */
-.chat-welcome .text-2xl,
-div[class*="text-2xl"][class*="font-semibold"],
-h1[class*="text-2xl"] {
+/* Welcome heading (dark only — gradient text) */
+html.dark .chat-welcome .text-2xl,
+html.dark div[class*="text-2xl"][class*="font-semibold"],
+html.dark h1[class*="text-2xl"] {
   background: linear-gradient(135deg, #fff 40%, rgba(227,6,17,.8) 120%) !important;
   -webkit-background-clip: text !important;
   background-clip: text !important;
@@ -127,15 +128,19 @@ h1[class*="text-2xl"] {
 
 /* ── User message bubble ─────────────────────────────────────────────── */
 
+/* Structural (theme-agnostic) */
 .user-message .rounded-3xl {
-  background: linear-gradient(135deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,.04) 100%) !important;
-  border: 1px solid rgba(255,255,255,.1) !important;
   border-radius: 20px !important;
   padding: 12px 20px !important;
+}
+/* Dark-only colors */
+html.dark .user-message .rounded-3xl {
+  background: linear-gradient(135deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,.04) 100%) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
   box-shadow: 0 2px 12px rgba(0,0,0,.2) !important;
 }
 
-/* ── Assistant message content area ─────────────────────────────────── */
+/* ── Assistant message content area (theme-agnostic) ─────────────────── */
 
 .chat-assistant,
 .markdown-prose {
@@ -143,30 +148,29 @@ h1[class*="text-2xl"] {
   padding-left: 0 !important;
 }
 
-/* Subtle left accent on assistant message */
-.chat-assistant.markdown-prose {
+/* Subtle left accent on assistant message (dark only) */
+html.dark .chat-assistant.markdown-prose {
   padding-left: 14px !important;
   border-left: 2px solid rgba(227,6,17,.3) !important;
 }
 
-/* ── Message row wrapper ─────────────────────────────────────────────── */
+/* ── Message row wrapper (theme-agnostic) ────────────────────────────── */
 
 .user-message {
   padding: 8px 0 !important;
 }
 
-/* ── Assistant model name badge ──────────────────────────────────────── */
+/* ── Assistant model name badge (dark only) ──────────────────────────── */
 
-/* The "⚡ auto — универсальный" label above assistant messages */
-div[class*="font-semibold"][class*="capitalize"],
-.chat-assistant-name {
+html.dark div[class*="font-semibold"][class*="capitalize"],
+html.dark .chat-assistant-name {
   font-size: .78rem !important;
   font-weight: 600 !important;
   color: rgba(255,255,255,.55) !important;
   letter-spacing: .2px !important;
 }
 
-/* ── Response container ─────────────────────────────────────────────── */
+/* ── Response container (theme-agnostic animation) ───────────────────── */
 
 #response-content-container {
   animation: fade-in .25s ease-out;
@@ -176,18 +180,23 @@ div[class*="font-semibold"][class*="capitalize"],
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Input area ──────────────────────────────────────────────────────── */
+/* ── Input area (structural — theme-agnostic) ────────────────────────── */
 
 .chat-input,
 #chat-textarea,
 textarea {
-  background: rgba(255,255,255,.04) !important;
-  border: 1.5px solid var(--glass-border) !important;
   border-radius: 16px !important;
-  color: #f0f0f0 !important;
   caret-color: var(--mts) !important;
   padding: 10px 16px !important;
   transition: border-color .2s, box-shadow .2s !important;
+}
+/* Dark-only input colors */
+html.dark .chat-input,
+html.dark #chat-textarea,
+html.dark textarea {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid var(--glass-border) !important;
+  color: #f0f0f0 !important;
 }
 .chat-input:focus,
 #chat-textarea:focus,
@@ -197,42 +206,68 @@ textarea:focus {
   outline: none !important;
 }
 
-/* OpenWebUI v0.6+ uses ProseMirror/TipTap contenteditable inside a rounded container.
-   The visible outer border lives on the ancestor div.rounded-3xl — we only need
-   to ensure adequate padding inside so text never touches the rounded corner. */
+/* ProseMirror / TipTap contenteditable (theme-agnostic) */
 div[contenteditable="true"].ProseMirror,
 div[contenteditable="true"].tiptap {
   padding: 2px 8px !important;
   outline: none !important;
 }
 
-/* Style the real outer container (rounded-3xl shadow-lg) for border/focus effect.
-   Border is transparent by default — only shows red on :focus-within.            */
+/* Outer container (structural — theme-agnostic) */
 div[class*="rounded-3xl"][class*="shadow-lg"] {
   border: 1.5px solid transparent !important;
   border-radius: 24px !important;
-  background: rgba(255,255,255,.04) !important;
   transition: border-color .2s, box-shadow .2s !important;
+}
+/* Dark-only background */
+html.dark div[class*="rounded-3xl"][class*="shadow-lg"] {
+  background: rgba(255,255,255,.04) !important;
 }
 div[class*="rounded-3xl"][class*="shadow-lg"]:focus-within {
   border-color: var(--mts) !important;
   box-shadow: 0 0 0 3px var(--mts-glow), 0 0 24px rgba(227,6,17,.06) !important;
 }
 
-.chat-input-container {
+/* Chat input container (dark only) */
+html.dark .chat-input-container {
   background: rgba(10,10,11,.8) !important;
   backdrop-filter: blur(20px) !important;
 }
 
-/* Generic inputs */
+/* Generic inputs (structural — theme-agnostic) */
 input[type="text"], input[type="search"],
 input[type="password"], input[type="email"],
 input[type="number"], select {
+  border-radius: 12px !important;
+  transition: border-color .2s, box-shadow .2s !important;
+}
+/* Dark-only generic input colors */
+html.dark input[type="text"], html.dark input[type="search"],
+html.dark input[type="password"], html.dark input[type="email"],
+html.dark input[type="number"] {
   background: rgba(255,255,255,.04) !important;
   border: 1.5px solid var(--glass-border) !important;
-  border-radius: 12px !important;
   color: #f0f0f0 !important;
-  transition: border-color .2s, box-shadow .2s !important;
+}
+/* Select: solid dark so popup is readable */
+html.dark select {
+  background-color: #1e1e22 !important;
+  border: 1.5px solid rgba(255,255,255,.13) !important;
+  color: #e0e0e0 !important;
+}
+html.dark select:hover {
+  border-color: rgba(255,255,255,.28) !important;
+  background-color: #26262b !important;
+}
+/* Dropdown popup options */
+html.dark select option,
+html.dark select optgroup {
+  background-color: #1e1e22 !important;
+  color: #e0e0e0 !important;
+}
+html.dark select option:checked {
+  background-color: #e30611 !important;
+  color: #fff !important;
 }
 input:focus, select:focus {
   border-color: var(--mts) !important;
@@ -240,7 +275,7 @@ input:focus, select:focus {
   outline: none !important;
 }
 
-/* ── Send button ─────────────────────────────────────────────────────── */
+/* ── Send button (theme-agnostic — brand-colored) ────────────────────── */
 
 .send-message-button,
 button[aria-label*="Send" i],
@@ -257,7 +292,6 @@ button[aria-label*="Send" i]:hover {
   box-shadow: 0 4px 20px rgba(227,6,17,.45) !important;
   transform: scale(1.05) !important;
 }
-/* Also target bg-black/dark:bg-white pattern used by OpenWebUI send button */
 button.bg-black, button.dark\:bg-white {
   background: var(--mts-grad) !important;
   border-radius: 12px !important;
@@ -267,11 +301,11 @@ button.bg-black svg, button.dark\:bg-white svg {
   color: #fff !important; fill: #fff !important;
 }
 
-/* ── Model selector pill ─────────────────────────────────────────────── */
+/* ── Model selector pill (dark only) ─────────────────────────────────── */
 
-button[id*="model"],
-button[class*="model-selector"],
-.model-selector {
+html.dark button[id*="model"],
+html.dark button[class*="model-selector"],
+html.dark .model-selector {
   background: rgba(227,6,17,.12) !important;
   border: 1.5px solid rgba(227,6,17,.3) !important;
   border-radius: 20px !important;
@@ -279,45 +313,54 @@ button[class*="model-selector"],
   font-weight: 600 !important;
   transition: all .15s ease !important;
 }
-button[id*="model"]:hover,
-.model-selector:hover {
+html.dark button[id*="model"]:hover,
+html.dark .model-selector:hover {
   background: rgba(227,6,17,.2) !important;
   border-color: var(--mts) !important;
 }
 
 /* ── Code blocks ─────────────────────────────────────────────────────── */
 
+/* Structural (theme-agnostic) */
 pre {
-  background: #08090d !important;
-  border: 1px solid var(--glass-border) !important;
   border-radius: 12px !important;
-  box-shadow: var(--shadow) !important;
-}
-pre code, code.hljs {
-  background: transparent !important;
-  color: #7ee787 !important;
 }
 :not(pre) > code {
-  background: var(--mts-dim) !important;
-  color: #fca5a5 !important;
   padding: 2px 6px !important;
   border-radius: 5px !important;
   font-size: .87em !important;
+}
+/* Dark-only code colors */
+html.dark pre {
+  background: #08090d !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--shadow) !important;
+}
+html.dark pre code, html.dark code.hljs {
+  background: transparent !important;
+  color: #7ee787 !important;
+}
+html.dark :not(pre) > code {
+  background: var(--mts-dim) !important;
+  color: #fca5a5 !important;
   border: 1px solid rgba(227,6,17,.1) !important;
 }
 
-/* ── Thinking blocks (```thinking fenced code) ───────────────────────── */
+/* ── Thinking blocks (theme-agnostic structural + dark colors) ───────── */
 
 pre:has(> code.language-thinking),
 pre:has(> code.hljs.language-thinking) {
-  background: var(--think-dim) !important;
-  border: 1px solid var(--think-border) !important;
-  border-left: 3px solid var(--think) !important;
   border-radius: 12px !important;
   max-height: 120px;
   overflow-y: auto;
   transition: max-height .3s ease;
   box-shadow: none !important;
+}
+html.dark pre:has(> code.language-thinking),
+html.dark pre:has(> code.hljs.language-thinking) {
+  background: var(--think-dim) !important;
+  border: 1px solid var(--think-border) !important;
+  border-left: 3px solid var(--think) !important;
 }
 pre:has(> code.language-thinking):hover,
 pre:has(> code.hljs.language-thinking):hover {
@@ -325,92 +368,173 @@ pre:has(> code.hljs.language-thinking):hover {
 }
 pre > code.language-thinking,
 pre > code.hljs.language-thinking {
-  color: var(--think) !important;
-  background: transparent !important;
   white-space: pre-wrap !important;
   font-size: .82rem !important;
   line-height: 1.6;
 }
+html.dark pre > code.language-thinking,
+html.dark pre > code.hljs.language-thinking {
+  color: var(--think) !important;
+  background: transparent !important;
+}
+
+/* ── Native OpenWebUI thinking collapsible (Svelte component) ────────── */
+/* Header: "🧠 Процесс мышления" — subtle, blends with chat              */
+[class*="text-gray-500"][class*="cursor-pointer"]:has(> [class*="font-medium"]) {
+  padding: 4px 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: none !important;
+  transition: color .2s !important;
+  user-select: none;
+  font-size: 0.78rem !important;
+  opacity: 0.55;
+}
+[class*="text-gray-500"][class*="cursor-pointer"]:has(> [class*="font-medium"]):hover {
+  opacity: 0.85;
+  background: none !important;
+}
+
+/* Thinking content — grayer, smaller, italic, distinct from answer      */
+[class*="text-gray-500"][class*="cursor-pointer"] + div {
+  font-size: 0.82rem !important;
+  line-height: 1.65 !important;
+  font-style: italic !important;
+  border-left: 2px solid var(--think-border) !important;
+  padding-left: 14px !important;
+  margin-left: 6px !important;
+  margin-top: 6px !important;
+  /* Smooth expand animation */
+  animation: thinkFadeIn 0.35s ease-out !important;
+}
+html.dark [class*="text-gray-500"][class*="cursor-pointer"] + div {
+  color: rgba(255,255,255,.42) !important;
+}
+[class*="text-gray-500"][class*="cursor-pointer"] + div p,
+[class*="text-gray-500"][class*="cursor-pointer"] + div span {
+  font-size: 0.82rem !important;
+  line-height: 1.65 !important;
+}
+html.dark [class*="text-gray-500"][class*="cursor-pointer"] + div p,
+html.dark [class*="text-gray-500"][class*="cursor-pointer"] + div span {
+  color: rgba(255,255,255,.42) !important;
+}
+
+/* Pulsing brain animation during streaming (when thinking is in progress) */
+@keyframes thinkPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@keyframes thinkFadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* While content is still loading (Svelte adds animate-pulse or similar) */
+[class*="text-gray-500"][class*="cursor-pointer"] [class*="animate-"] {
+  animation: thinkPulse 1.5s ease-in-out infinite !important;
+}
 
 /* ── Dialogs & dropdowns ─────────────────────────────────────────────── */
 
-/* NOTE: div.modal is the full-screen BACKDROP overlay — styled separately below.
-   Do NOT include div[class*="modal"] here as it would make the overlay opaque. */
+/* Structural (theme-agnostic) */
 dialog, [role="dialog"] {
-  background: rgba(15,15,18,.98) !important;
-  backdrop-filter: blur(28px) !important;
-  border: 1px solid rgba(255,255,255,.1) !important;
   border-radius: 20px !important;
-  box-shadow: 0 32px 80px rgba(0,0,0,.7), 0 8px 40px rgba(0,0,0,.4) !important;
 }
 div[class*="dropdown"],
 [role="listbox"], [role="menu"] {
-  background: rgba(14,14,16,.96) !important;
-  backdrop-filter: blur(20px) !important;
-  border: 1px solid var(--glass-border) !important;
   border-radius: 14px !important;
-  box-shadow: var(--shadow-lg) !important;
 }
 [role="option"]:hover,
 [role="menuitem"]:hover,
 div[class*="dropdown"] button:hover,
 div[class*="dropdown"] a:hover {
-  background: rgba(255,255,255,.07) !important;
   border-radius: 8px !important;
+}
+
+/* Dark-only dialog/dropdown colors */
+html.dark dialog, html.dark [role="dialog"] {
+  background: rgba(15,15,18,.98) !important;
+  backdrop-filter: blur(28px) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  box-shadow: 0 32px 80px rgba(0,0,0,.7), 0 8px 40px rgba(0,0,0,.4) !important;
+}
+html.dark div[class*="dropdown"],
+html.dark [role="listbox"], html.dark [role="menu"] {
+  background: rgba(14,14,16,.96) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+html.dark [role="option"]:hover,
+html.dark [role="menuitem"]:hover,
+html.dark div[class*="dropdown"] button:hover,
+html.dark div[class*="dropdown"] a:hover {
+  background: rgba(255,255,255,.07) !important;
 }
 
 /* ── Settings Modal ──────────────────────────────────────────────────── */
 
-/* Full-screen backdrop overlay */
-div.modal {
+/* Full-screen backdrop overlay (dark only) */
+html.dark div.modal {
   background: rgba(0,0,0,.6) !important;
   backdrop-filter: blur(10px) !important;
   -webkit-backdrop-filter: blur(10px) !important;
 }
 
-/* Dialog card */
+/* Dialog card — structural (theme-agnostic) */
 div.modal > div {
-  background: rgba(15,15,18,.99) !important;
-  border: 1px solid rgba(255,255,255,.1) !important;
   border-radius: 22px !important;
-  box-shadow: 0 32px 80px rgba(0,0,0,.7), 0 8px 40px rgba(0,0,0,.5) !important;
   overflow: hidden !important;
 }
+/* Dialog card — dark only */
+html.dark div.modal > div {
+  background: rgba(15,15,18,.99) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  box-shadow: 0 32px 80px rgba(0,0,0,.7), 0 8px 40px rgba(0,0,0,.5) !important;
+}
 
-/* Header bar ("Настройки" + close btn) */
+/* Header bar — structural (theme-agnostic) */
 div.modal > div > div > .flex.justify-between {
-  background: rgba(255,255,255,.02) !important;
-  border-bottom: 1px solid rgba(255,255,255,.07) !important;
   padding: 16px 22px 14px !important;
 }
+/* Header bar — dark only */
+html.dark div.modal > div > div > .flex.justify-between {
+  background: rgba(255,255,255,.02) !important;
+  border-bottom: 1px solid rgba(255,255,255,.07) !important;
+}
+/* Modal title — structural */
 div.modal .text-lg.font-medium {
   font-size: .95rem !important;
   font-weight: 700 !important;
   letter-spacing: .3px !important;
+}
+html.dark div.modal .text-lg.font-medium {
   color: #f0f0f0 !important;
 }
 
-/* Left nav sidebar */
+/* Left nav sidebar — structural (theme-agnostic) */
 .tabs {
-  border-right: 1px solid rgba(255,255,255,.07) !important;
   padding-right: 8px !important;
   gap: 3px !important;
 }
-
-/* Nav items — inactive: class contains dark:text-gray-600 */
-.tabs button[class*="dark:text-gray-6"],
-.tabs button[class*="text-gray-3"] {
-  color: rgba(255,255,255,.4) !important;
-  font-size: .78rem !important;
-  padding: 7px 10px !important;
-  border-radius: 9px !important;
-}
-.tabs button[class*="dark:text-gray-6"]:hover {
-  background: rgba(255,255,255,.06) !important;
-  color: rgba(255,255,255,.8) !important;
+html.dark .tabs {
+  border-right: 1px solid rgba(255,255,255,.07) !important;
 }
 
-/* Nav items — active: class ends at "transition " (no color classes) */
+/* Nav items — inactive (dark only, matching light theme contrast) */
+html.dark .tabs button[class*="dark:text-gray-6"],
+html.dark .tabs button[class*="text-gray-3"] {
+  color: rgba(255,255,255,.72) !important;
+  font-weight: 500 !important;
+}
+html.dark .tabs button[class*="dark:text-gray-6"]:hover,
+html.dark .tabs button[class*="text-gray-3"]:hover {
+  background: rgba(255,255,255,.08) !important;
+  color: rgba(255,255,255,.95) !important;
+}
+
+/* Nav items — active (theme-agnostic brand highlight) */
 .tabs button:not([class*="dark:text-gray-6"]):not([class*="text-gray-3"]):not(.hidden):not([class*="overflow"]) {
   background: rgba(227,6,17,.14) !important;
   color: var(--mts) !important;
@@ -421,7 +545,7 @@ div.modal .text-lg.font-medium {
   border: 1px solid rgba(227,6,17,.2) !important;
 }
 
-/* Section headings inside settings ("Пользовательский интерфейс", "Чат" …) */
+/* Section headings inside settings — structural (theme-agnostic) */
 .modal [class~="mb-1"][class~="font-medium"],
 .modal [class~="my-1"][class~="font-medium"],
 .modal [class~="mb-1.5"][class~="font-medium"],
@@ -430,62 +554,71 @@ div.modal .text-lg.font-medium {
   font-weight: 700 !important;
   letter-spacing: 1px !important;
   text-transform: uppercase !important;
-  color: rgba(255,255,255,.35) !important;
-  border-bottom: 1px solid rgba(255,255,255,.06) !important;
   padding-bottom: 6px !important;
   padding-top: 14px !important;
   margin-bottom: 2px !important;
 }
+html.dark .modal [class~="mb-1"][class~="font-medium"],
+html.dark .modal [class~="my-1"][class~="font-medium"],
+html.dark .modal [class~="mb-1.5"][class~="font-medium"],
+html.dark .modal [class~="my-1.5"][class~="font-medium"] {
+  color: rgba(255,255,255,.35) !important;
+  border-bottom: 1px solid rgba(255,255,255,.06) !important;
+}
 
-/* Individual setting rows */
+/* Individual setting rows — structural (theme-agnostic) */
 .modal [class~="py-0.5"][class~="justify-between"] {
   padding: 5px 8px !important;
   border-radius: 8px !important;
   transition: background .12s !important;
   margin: 1px 0 !important;
 }
-.modal [class~="py-0.5"][class~="justify-between"]:hover {
+html.dark .modal [class~="py-0.5"][class~="justify-between"]:hover {
   background: rgba(255,255,255,.04) !important;
 }
-.modal [class~="py-0.5"][class~="justify-between"] .self-center.text-xs {
+html.dark .modal [class~="py-0.5"][class~="justify-between"] .self-center.text-xs {
   color: rgba(255,255,255,.72) !important;
   font-size: .8rem !important;
 }
 
-/* Toggle / value pill buttons ("Включено" / "Выключено") */
+/* Toggle / value pill buttons — structural + dark */
 .modal form button[class~="rounded-sm"] {
-  background: rgba(255,255,255,.07) !important;
-  border: 1px solid rgba(255,255,255,.1) !important;
   border-radius: 8px !important;
-  color: rgba(255,255,255,.7) !important;
   font-size: .72rem !important;
   font-weight: 500 !important;
   padding: 3px 10px !important;
   transition: all .15s !important;
   white-space: nowrap !important;
 }
-.modal form button[class~="rounded-sm"]:hover {
+html.dark .modal form button[class~="rounded-sm"] {
+  background: rgba(255,255,255,.07) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  color: rgba(255,255,255,.7) !important;
+}
+html.dark .modal form button[class~="rounded-sm"]:hover {
   background: rgba(255,255,255,.13) !important;
   color: #fff !important;
   border-color: rgba(255,255,255,.22) !important;
 }
 
-/* Scrollable settings panel */
+/* Scrollable settings panel (theme-agnostic) */
 .modal [class~="overflow-y-scroll"] {
   scrollbar-width: thin !important;
   padding-right: 4px !important;
 }
 
-/* System prompt textarea in General settings */
+/* System prompt textarea — structural */
 .modal form textarea {
-  background: rgba(255,255,255,.04) !important;
-  border: 1.5px solid rgba(255,255,255,.1) !important;
   border-radius: 12px !important;
-  color: #f0f0f0 !important;
   padding: 10px 14px !important;
   font-size: .82rem !important;
   resize: vertical !important;
   transition: border-color .2s !important;
+}
+html.dark .modal form textarea {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid rgba(255,255,255,.1) !important;
+  color: #f0f0f0 !important;
 }
 .modal form textarea:focus {
   border-color: var(--mts) !important;
@@ -493,7 +626,7 @@ div.modal .text-lg.font-medium {
   box-shadow: 0 0 0 3px var(--mts-glow) !important;
 }
 
-/* Save button in settings */
+/* Save button in settings (theme-agnostic — brand-colored) */
 .modal .flex.justify-end button[type="submit"],
 .modal .flex.justify-end button:not([class*="close"]) {
   background: var(--mts-grad) !important;
@@ -513,11 +646,10 @@ div.modal .text-lg.font-medium {
 
 /* ── Prose / markdown ────────────────────────────────────────────────── */
 
+/* Structural (theme-agnostic) */
 .prose h1, .prose h2, .prose h3, .prose h4 {
-  color: #f5f5f5 !important;
   font-weight: 700 !important;
 }
-.prose strong { color: #f1f5f9 !important; }
 .prose blockquote {
   border-left: 3px solid var(--mts) !important;
   background: var(--mts-dim) !important;
@@ -526,25 +658,34 @@ div.modal .text-lg.font-medium {
 }
 .prose table { border-collapse: collapse !important; width: 100% !important; }
 .prose th {
-  background: rgba(255,255,255,.05) !important;
-  border-bottom: 2px solid var(--mts) !important;
   font-size: .72rem !important;
   text-transform: uppercase !important;
   letter-spacing: .8px !important;
   font-weight: 600 !important;
   padding: 10px 14px !important;
 }
-.prose td { border-bottom: 1px solid rgba(255,255,255,.04) !important; padding: 10px 14px !important; }
-.prose tr:hover td { background: rgba(255,255,255,.04) !important; }
-.prose hr { border-color: var(--glass-border) !important; }
+.prose td { padding: 10px 14px !important; }
+
+/* Dark-only prose colors */
+html.dark .prose h1, html.dark .prose h2, html.dark .prose h3, html.dark .prose h4 {
+  color: #f5f5f5 !important;
+}
+html.dark .prose strong { color: #f1f5f9 !important; }
+html.dark .prose th {
+  background: rgba(255,255,255,.05) !important;
+  border-bottom: 2px solid var(--mts) !important;
+}
+html.dark .prose td { border-bottom: 1px solid rgba(255,255,255,.04) !important; }
+html.dark .prose tr:hover td { background: rgba(255,255,255,.04) !important; }
+html.dark .prose hr { border-color: var(--glass-border) !important; }
 
 /* ── Buttons (general) ───────────────────────────────────────────────── */
 
-/* Exclude rounded-full buttons (circles, pills) — they must stay circular */
+/* Structural (theme-agnostic) */
 button:not([class*="rounded-full"]) { border-radius: 10px !important; transition: all .12s ease !important; }
 button[class*="rounded-full"]       { transition: all .12s ease !important; }
 
-/* Primary action buttons */
+/* Primary action buttons (theme-agnostic — brand-colored) */
 button.bg-blue-600, .btn-primary,
 button[class*="primary"] {
   background: var(--mts-grad) !important;
@@ -553,7 +694,7 @@ button[class*="primary"] {
   box-shadow: 0 2px 10px rgba(227,6,17,.25) !important;
 }
 
-/* Message action icons (copy, regenerate, etc.) */
+/* Message action icons (theme-agnostic) */
 .chat-copy-button, .regenerate-response-button,
 .delete-response-button, .edit-user-message-button {
   opacity: .35;
@@ -569,58 +710,66 @@ button[class*="primary"] {
 
 /* ── Landing page suggestion chips ──────────────────────────────────── */
 
+/* Structural (theme-agnostic) */
 button[class*="suggestion"],
 div[class*="suggestion"] button {
-  background: var(--glass) !important;
-  border: 1px solid var(--glass-border) !important;
   border-radius: 14px !important;
-  backdrop-filter: blur(8px) !important;
   transition: all .2s ease !important;
 }
-button[class*="suggestion"]:hover {
+/* Dark-only chip colors */
+html.dark button[class*="suggestion"],
+html.dark div[class*="suggestion"] button {
+  background: var(--glass) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(8px) !important;
+}
+html.dark button[class*="suggestion"]:hover {
   border-color: var(--glass-lit) !important;
   transform: translateY(-2px);
   box-shadow: var(--shadow) !important;
 }
 
-/* ── Toggles ─────────────────────────────────────────────────────────── */
+/* ── Toggles (theme-agnostic — brand-colored) ────────────────────────── */
 
 input[type="checkbox"][role="switch"]:checked,
 button[role="switch"][aria-checked="true"] {
   background-color: var(--mts) !important;
 }
 
-/* ── Scrollbar ───────────────────────────────────────────────────────── */
+/* ── Scrollbar (dark only) ───────────────────────────────────────────── */
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.18); }
+html.dark ::-webkit-scrollbar { width: 4px; height: 4px; }
+html.dark ::-webkit-scrollbar-track { background: transparent; }
+html.dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.18); }
 
-/* ── Selection & focus ───────────────────────────────────────────────── */
+/* ── Selection & focus (theme-agnostic) ──────────────────────────────── */
 
 ::selection { background: rgba(227,6,17,.25) !important; color: #fff !important; }
 *:focus-visible { outline: 2px solid var(--mts) !important; outline-offset: 2px !important; }
 
-/* ── Links ───────────────────────────────────────────────────────────── */
+/* ── Links (dark only) ───────────────────────────────────────────────── */
 
-a { color: #fca5a5 !important; }
-a:hover { color: var(--mts) !important; }
+html.dark a { color: #fca5a5 !important; }
+html.dark a:hover { color: var(--mts) !important; }
 
-/* ── Tooltips ────────────────────────────────────────────────────────── */
+/* ── Tooltips (dark only) ────────────────────────────────────────────── */
 
-[role="tooltip"] {
+html.dark [role="tooltip"] {
   background: rgba(14,14,16,.96) !important;
   backdrop-filter: blur(12px) !important;
   border: 1px solid var(--glass-border) !important;
+}
+/* Structural (theme-agnostic) */
+[role="tooltip"] {
   border-radius: 10px !important;
 }
 
-/* ── Dividers ────────────────────────────────────────────────────────── */
+/* ── Dividers (dark only) ────────────────────────────────────────────── */
 
-hr, [class*="divider"] { border-color: var(--glass-border) !important; }
+html.dark hr, html.dark [class*="divider"] { border-color: var(--glass-border) !important; }
 
-/* ── Spinner ─────────────────────────────────────────────────────────── */
+/* ── Spinner (theme-agnostic) ────────────────────────────────────────── */
 
 .animate-spin { color: var(--mts) !important; }
 
@@ -628,17 +777,26 @@ hr, [class*="divider"] { border-color: var(--glass-border) !important; }
    Settings — All-tabs polish (v3.1)
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── Select elements: stronger override (rounded-sm → glass pill) ────── */
-/* Tailwind class specificity beats element selector — use class+element   */
+/* ── Select elements — structural (theme-agnostic) ───────────────────── */
 select[class~="rounded-sm"],
 .modal select {
   border-radius: 10px !important;
-  border: 1.5px solid rgba(255,255,255,.12) !important;
-  background: rgba(255,255,255,.06) !important;
-  color: #e0e0e0 !important;
   padding: 5px 26px 5px 10px !important;
   font-size: .78rem !important;
   transition: border-color .2s, box-shadow .2s !important;
+}
+/* Dark-only select colors — solid background so popup is readable */
+html.dark select[class~="rounded-sm"],
+html.dark .modal select {
+  background-color: #1e1e22 !important;
+  border: 1.5px solid rgba(255,255,255,.14) !important;
+  color: #e0e0e0 !important;
+  cursor: pointer !important;
+}
+html.dark select[class~="rounded-sm"]:hover,
+html.dark .modal select:hover {
+  border-color: rgba(255,255,255,.28) !important;
+  background-color: #26262b !important;
 }
 select[class~="rounded-sm"]:focus,
 .modal select:focus {
@@ -646,17 +804,32 @@ select[class~="rounded-sm"]:focus,
   box-shadow: 0 0 0 3px var(--mts-glow) !important;
   outline: none !important;
 }
+/* Popup options inside modal selects */
+html.dark select[class~="rounded-sm"] option,
+html.dark .modal select option {
+  background-color: #1e1e22 !important;
+  color: #e0e0e0 !important;
+}
+html.dark select[class~="rounded-sm"] option:checked,
+html.dark .modal select option:checked {
+  background-color: #e30611 !important;
+  color: #fff !important;
+}
 
-/* ── Text inputs inside settings modal ────────────────────────────────── */
+/* ── Text inputs inside settings modal — structural ──────────────────── */
 .modal input:not([type="checkbox"]):not([type="radio"])
                 :not([type="range"]):not([type="file"]) {
-  background: rgba(255,255,255,.04) !important;
-  border: 1.5px solid rgba(255,255,255,.1) !important;
   border-radius: 10px !important;
-  color: #e8e8e8 !important;
   padding: 7px 12px !important;
   font-size: .82rem !important;
   transition: border-color .2s, box-shadow .2s !important;
+}
+/* Dark-only modal input colors */
+html.dark .modal input:not([type="checkbox"]):not([type="radio"])
+                :not([type="range"]):not([type="file"]) {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid rgba(255,255,255,.1) !important;
+  color: #e8e8e8 !important;
 }
 .modal input:not([type="checkbox"]):not([type="radio"])
             :not([type="range"]):not([type="file"]):focus {
@@ -665,10 +838,9 @@ select[class~="rounded-sm"]:focus,
   outline: none !important;
 }
 
-/* ── "Показать" / "Скрыть" secondary pill buttons ────────────────────── */
-/* Sit at far-right of "Изменить пароль" / "Ключи API" rows              */
-.modal button[class*="text-gray-5"],
-.modal button[class*="dark:text-gray-4"] {
+/* ── Secondary pill buttons (dark only) ──────────────────────────────── */
+html.dark .modal button[class*="text-gray-5"],
+html.dark .modal button[class*="dark:text-gray-4"] {
   background: rgba(255,255,255,.06) !important;
   border: 1px solid rgba(255,255,255,.1) !important;
   border-radius: 7px !important;
@@ -678,17 +850,16 @@ select[class~="rounded-sm"]:focus,
   font-weight: 500 !important;
   transition: all .15s !important;
 }
-.modal button[class*="text-gray-5"]:hover,
-.modal button[class*="dark:text-gray-4"]:hover {
+html.dark .modal button[class*="text-gray-5"]:hover,
+html.dark .modal button[class*="dark:text-gray-4"]:hover {
   background: rgba(255,255,255,.11) !important;
   color: rgba(255,255,255,.9) !important;
   border-color: rgba(255,255,255,.22) !important;
 }
 
-/* ── Учетная запись: profile avatar action buttons ───────────────────── */
-/* "Использовать инициалы" / "Использовать Gravatar" / "Удалить"         */
-.modal [class*="rounded-full"] ~ div button:not([type="submit"]),
-.modal [class*="rounded-full"] ~ span button:not([type="submit"]) {
+/* ── Profile avatar action buttons (dark only) ───────────────────────── */
+html.dark .modal [class*="rounded-full"] ~ div button:not([type="submit"]),
+html.dark .modal [class*="rounded-full"] ~ span button:not([type="submit"]) {
   background: rgba(255,255,255,.07) !important;
   border: 1px solid rgba(255,255,255,.12) !important;
   border-radius: 8px !important;
@@ -697,16 +868,15 @@ select[class~="rounded-sm"]:focus,
   padding: 4px 10px !important;
   transition: all .15s !important;
 }
-.modal [class*="rounded-full"] ~ div button:hover,
-.modal [class*="rounded-full"] ~ span button:hover {
+html.dark .modal [class*="rounded-full"] ~ div button:hover,
+html.dark .modal [class*="rounded-full"] ~ span button:hover {
   background: rgba(255,255,255,.13) !important;
   color: #fff !important;
 }
 
-/* ── Персонализация: "Управлять" standalone button ───────────────────── */
-/* Matched by having gap-1 and being a top-level action button in form    */
-.modal form button[class~="gap-1"],
-.modal form button[class~="gap-2"]:not([class~="rounded-sm"]):not([class*="py-0"]) {
+/* ── Standalone action buttons in forms (dark only) ──────────────────── */
+html.dark .modal form button[class~="gap-1"],
+html.dark .modal form button[class~="gap-2"]:not([class~="rounded-sm"]):not([class*="py-0"]) {
   background: rgba(255,255,255,.07) !important;
   border: 1px solid rgba(255,255,255,.12) !important;
   border-radius: 9px !important;
@@ -716,13 +886,19 @@ select[class~="rounded-sm"]:focus,
   font-weight: 500 !important;
   transition: all .15s !important;
 }
-.modal form button[class~="gap-1"]:hover,
-.modal form button[class~="gap-2"]:not([class~="rounded-sm"]):hover {
+html.dark .modal form button[class~="gap-1"]:hover,
+html.dark .modal form button[class~="gap-2"]:not([class~="rounded-sm"]):hover {
   background: rgba(255,255,255,.13) !important;
   color: #fff !important;
 }
 
-/* ── Чаты tab: action rows (Импорт / Экспорт / Архив / Удалить) ──────── */
+/* ── Hide update banner ─────────────────────────────────────────────── */
+.absolute.bottom-8.right-8[class*="z-50"],
+div[class*="bottom-8"][class*="right-8"][class*="z-50"] {
+  display: none !important;
+}
+
+/* ── Chats tab: action rows — structural (theme-agnostic) ────────────── */
 .modal [class~="cursor-pointer"][class~="flex"][class~="w-full"],
 .modal button[class~="cursor-pointer"][class~="w-full"] {
   border-radius: 10px !important;
@@ -730,20 +906,20 @@ select[class~="rounded-sm"]:focus,
   transition: background .15s !important;
   margin-bottom: 2px !important;
 }
-.modal [class~="cursor-pointer"][class~="flex"][class~="w-full"]:hover,
-.modal button[class~="cursor-pointer"][class~="w-full"]:hover {
+html.dark .modal [class~="cursor-pointer"][class~="flex"][class~="w-full"]:hover,
+html.dark .modal button[class~="cursor-pointer"][class~="w-full"]:hover {
   background: rgba(255,255,255,.06) !important;
 }
-/* "Удалить ВСЕ Чаты" — danger highlight on hover */
-.modal [class~="cursor-pointer"][class*="text-red"]:hover,
-.modal button[class*="text-red"]:not([type="submit"]):hover {
+/* Danger highlight on hover (dark only) */
+html.dark .modal [class~="cursor-pointer"][class*="text-red"]:hover,
+html.dark .modal button[class*="text-red"]:not([type="submit"]):hover {
   background: rgba(227,6,17,.12) !important;
   color: #ff6b6b !important;
 }
 
-/* ── О программе: license scrollarea ────────────────────────────────── */
-.modal [class*="overflow-y"][class~="text-xs"],
-.modal [class~="text-xs"][class*="font-mono"] {
+/* ── About: license scrollarea (dark only) ───────────────────────────── */
+html.dark .modal [class*="overflow-y"][class~="text-xs"],
+html.dark .modal [class~="text-xs"][class*="font-mono"] {
   background: rgba(255,255,255,.025) !important;
   border: 1px solid rgba(255,255,255,.07) !important;
   border-radius: 10px !important;
@@ -754,9 +930,9 @@ select[class~="rounded-sm"]:focus,
   line-height: 1.7 !important;
 }
 
-/* ── О программе: "Проверить обновления" / "Документация" ───────────── */
-.modal [class*="justify-end"] > a,
-.modal [class*="justify-between"] > a {
+/* ── About: action links (dark only) ─────────────────────────────────── */
+html.dark .modal [class*="justify-end"] > a,
+html.dark .modal [class*="justify-between"] > a {
   background: rgba(255,255,255,.07) !important;
   border: 1px solid rgba(255,255,255,.1) !important;
   border-radius: 8px !important;
@@ -767,60 +943,87 @@ select[class~="rounded-sm"]:focus,
   text-decoration: none !important;
   transition: all .15s !important;
 }
-.modal [class*="justify-end"] > a:hover,
-.modal [class*="justify-between"] > a:hover {
+html.dark .modal [class*="justify-end"] > a:hover,
+html.dark .modal [class*="justify-between"] > a:hover {
   background: rgba(255,255,255,.13) !important;
   color: #fff !important;
 }
 
-/* ── Инструменты: iframe tool area ────────────────────────────────────── */
-.modal iframe {
+/* ── Tools: iframe (dark only — invert for dark background) ──────────── */
+html.dark .modal iframe {
   border-radius: 10px !important;
   border: 1px solid rgba(255,255,255,.08) !important;
-  /* Invert white iframe content to dark */
   filter: invert(1) hue-rotate(180deg) brightness(.88) contrast(.95) !important;
 }
 
-/* ── Settings sidebar: search input ──────────────────────────────────── */
-.tabs input,
-.modal div[class*="sticky"] input[type="text"],
-.modal input[placeholder*="оиск"],
-.modal input[placeholder*="earch"] {
-  background: rgba(255,255,255,.05) !important;
-  border: 1px solid rgba(255,255,255,.09) !important;
-  border-radius: 9px !important;
-  color: rgba(255,255,255,.7) !important;
-  font-size: .76rem !important;
-  transition: border-color .2s !important;
+/* ── Hide "Her" theme from theme selector ─────────────────────────────── */
+option[value="her"] { display: none !important; }
+
+/* ── Settings modal: wider + taller, wider sidebar column ─────────────── */
+/* Inner dialog box: default 56rem → 66rem */
+.modal [class*="w-[56rem]"],
+.modal > div[class*="shadow"] {
+  max-width: 66rem !important;
+  width: 66rem !important;
 }
-.tabs input:focus {
-  border-color: var(--mts) !important;
-  outline: none !important;
-  box-shadow: 0 0 0 2px var(--mts-glow) !important;
+/* Taller: ensure min height */
+.modal [class*="w-[56rem]"] > div,
+.modal > div[class*="shadow"] > div {
+  min-height: 65vh !important;
+}
+/* Sidebar nav column: default md:w-40 (160px) → 250px */
+.tabs[class*="md:w-40"],
+.modal .tabs {
+  width: 250px !important;
+  min-width: 250px !important;
+  flex-shrink: 0 !important;
+}
+/* Hide search bar in settings sidebar — unnecessary clutter */
+.modal .tabs input,
+.tabs > div:has(> input) {
+  display: none !important;
+}
+
+/* Sidebar nav button text: prevent wrapping */
+.tabs button {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  font-size: 0.84rem !important;
+  padding: 8px 12px !important;
+  border-radius: 10px !important;
+  transition: all .15s !important;
+}
+
+/* Content panel: fill available width and expand height */
+.modal [class*="md:min-h-[32rem]"] {
+  max-height: 60vh !important;
+  min-height: 55vh !important;
+  flex: 1 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Admin panel (/admin/*) — full-page settings style
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Top sticky header nav */
-#app [class*="sticky"][class*="border-b"] {
+/* Top sticky header nav (dark only) */
+html.dark #app [class*="sticky"][class*="border-b"] {
   background: rgba(10,10,12,.96) !important;
   backdrop-filter: blur(20px) !important;
   -webkit-backdrop-filter: blur(20px) !important;
   border-bottom-color: rgba(255,255,255,.06) !important;
 }
 
-/* Left sidebar nav links */
+/* Left sidebar nav links — structural (theme-agnostic) */
 #app aside a, #app nav[class*="flex-col"] a {
   border-radius: 9px !important;
   padding: 6px 10px !important;
   transition: background .12s, color .12s !important;
   font-size: .82rem !important;
 }
-#app aside a:hover { background: rgba(255,255,255,.06) !important; }
+html.dark #app aside a:hover { background: rgba(255,255,255,.06) !important; }
 
-/* Admin active nav item (has red text from OpenWebUI) */
+/* Admin active nav item (theme-agnostic — brand-colored) */
 #app aside a[class*="text-red"],
 #app nav a[class*="text-red"] {
   background: rgba(227,6,17,.1) !important;
@@ -828,27 +1031,34 @@ select[class~="rounded-sm"]:focus,
   font-weight: 600 !important;
 }
 
-/* Section headings in admin content */
+/* Section headings in admin content — structural */
 #app main h2, #app main h3,
 #app main [class~="text-sm"][class~="font-semibold"] {
   font-size: .68rem !important;
   font-weight: 700 !important;
   letter-spacing: .9px !important;
   text-transform: uppercase !important;
-  color: rgba(255,255,255,.38) !important;
-  border-bottom: 1px solid rgba(255,255,255,.06) !important;
   padding-bottom: 5px !important;
   margin-bottom: 8px !important;
 }
+/* Dark-only admin heading colors */
+html.dark #app main h2, html.dark #app main h3,
+html.dark #app main [class~="text-sm"][class~="font-semibold"] {
+  color: rgba(255,255,255,.38) !important;
+  border-bottom: 1px solid rgba(255,255,255,.06) !important;
+}
 
-/* Admin input fields */
+/* Admin input fields — structural */
 #app main input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
-  background: rgba(255,255,255,.04) !important;
-  border: 1.5px solid rgba(255,255,255,.1) !important;
   border-radius: 10px !important;
-  color: #e8e8e8 !important;
   padding: 7px 12px !important;
   transition: border-color .2s, box-shadow .2s !important;
+}
+/* Dark-only admin input colors */
+html.dark #app main input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid rgba(255,255,255,.1) !important;
+  color: #e8e8e8 !important;
 }
 #app main input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus {
   border-color: var(--mts) !important;
@@ -856,16 +1066,19 @@ select[class~="rounded-sm"]:focus,
   outline: none !important;
 }
 
-/* Admin textareas */
+/* Admin textareas — structural */
 #app main textarea {
-  background: rgba(255,255,255,.04) !important;
-  border: 1.5px solid rgba(255,255,255,.1) !important;
   border-radius: 10px !important;
-  color: #e8e8e8 !important;
   padding: 8px 12px !important;
   resize: vertical !important;
   transition: border-color .2s !important;
   min-height: 80px !important;
+}
+/* Dark-only admin textarea colors */
+html.dark #app main textarea {
+  background: rgba(255,255,255,.04) !important;
+  border: 1.5px solid rgba(255,255,255,.1) !important;
+  color: #e8e8e8 !important;
 }
 #app main textarea:focus {
   border-color: var(--mts) !important;
@@ -873,15 +1086,26 @@ select[class~="rounded-sm"]:focus,
   outline: none !important;
 }
 
-/* Admin select elements */
+/* Admin select elements — structural */
 #app main select {
   border-radius: 10px !important;
-  border: 1.5px solid rgba(255,255,255,.1) !important;
-  background: rgba(255,255,255,.06) !important;
-  color: #e0e0e0 !important;
   padding: 5px 26px 5px 10px !important;
   font-size: .8rem !important;
   transition: border-color .2s !important;
+}
+/* Dark-only admin select colors */
+html.dark #app main select {
+  background-color: #1e1e22 !important;
+  border: 1.5px solid rgba(255,255,255,.12) !important;
+  color: #e0e0e0 !important;
+}
+html.dark #app main select option {
+  background-color: #1e1e22 !important;
+  color: #e0e0e0 !important;
+}
+html.dark #app main select option:checked {
+  background-color: #e30611 !important;
+  color: #fff !important;
 }
 #app main select:focus {
   border-color: var(--mts) !important;
@@ -889,18 +1113,21 @@ select[class~="rounded-sm"]:focus,
   outline: none !important;
 }
 
-/* Admin rows (label + toggle pairs) */
+/* Admin rows — structural */
 #app main [class~="flex"][class~="justify-between"][class~="items-center"] {
   padding: 8px 4px !important;
-  border-bottom: 1px solid rgba(255,255,255,.04) !important;
   transition: background .12s !important;
   border-radius: 8px !important;
 }
-#app main [class~="flex"][class~="justify-between"][class~="items-center"]:hover {
+/* Dark-only admin row colors */
+html.dark #app main [class~="flex"][class~="justify-between"][class~="items-center"] {
+  border-bottom: 1px solid rgba(255,255,255,.04) !important;
+}
+html.dark #app main [class~="flex"][class~="justify-between"][class~="items-center"]:hover {
   background: rgba(255,255,255,.03) !important;
 }
 
-/* Admin save button */
+/* Admin save button (theme-agnostic — brand-colored) */
 #app main button[type="submit"],
 #app main [class*="justify-end"] button:not([class*="text-red"]) {
   background: var(--mts-grad) !important;
@@ -918,12 +1145,8 @@ select[class~="rounded-sm"]:focus,
   transform: scale(1.02) !important;
 }
 
-/* ── Model / user avatar: fix broken image when profile_image_url="" ─────── */
-/* When src="" or src is absent, browser either fails or loads page HTML.      */
-/* CSS content: url() trick (Webkit/Chrome) replaces broken src inline.        */
-/* Cases:                                                                       */
-/*   alt="logo"  → home-page model banner  (src attr set to "")               */
-/*   alt="Model" → model picker list items (src attr completely absent/null)   */
+/* ── Model / user avatar: fix broken image (theme-agnostic) ──────────── */
+
 img[alt="logo"][src=""],
 img[alt="Model"][src=""],
 img[alt="Model"]:not([src]) {

@@ -39,6 +39,15 @@ _KEYWORD_RULES: list[tuple[re.Pattern, str, str]] = [
         re.I,
     ), "qwen-image-lightning", "image generation request"),
 
+    # Web search — route to quality model for synthesis, web_search injected separately
+    (re.compile(
+        r"\b(найди\s+(в\s+)?(интернет|сети|google)|поищи|загугли|search\s+(the\s+)?web"
+        r"|новости\s+(про|о|об)|актуальн|свежие\s+новости|текущ(ий|ая|ие)\s+(курс|цена|погода|дата)"
+        r"|погода\s+(в|на|сейчас)|курс\s+(доллар|евро|валют)|что\s+происход|что\s+случил"
+        r"|последние\s+событи|search\s+for|look\s+up|find\s+online)\b",
+        re.I,
+    ), "gpt-oss-120b", "web search request"),
+
     # Code / programming
     (re.compile(
         r"\b(код|code|программ|script|функци[яю]|function|class|класс|алгоритм|algorithm"
@@ -202,18 +211,27 @@ async def _embedding_route(text: str) -> RoutingDecision | None:
 # ---------------------------------------------------------------------------
 
 def _extract_text(messages: list[dict]) -> str:
-    """Concatenate text content from the last few user messages."""
-    parts: list[str] = []
-    for msg in messages[-4:]:  # look at last 4 messages for context
+    """Extract text from the LAST user message only.
+
+    Routing must classify the current request, not the conversation history.
+    Using old messages causes the router to "stick" to a previous model
+    (e.g. image gen request followed by a search request would still route
+    to the image model because the old 'нарисуй' keyword is still present).
+    """
+    # Find the last user message
+    for msg in reversed(messages):
+        if msg.get("role") != "user":
+            continue
         content = msg.get("content")
         if isinstance(content, str):
-            parts.append(content)
+            return content
         elif isinstance(content, list):
-            # Vision content parts: [{"type": "text", "text": "..."}, {"type": "image_url", ...}]
+            parts = []
             for part in content:
                 if isinstance(part, dict) and part.get("type") == "text":
                     parts.append(part.get("text", ""))
-    return " ".join(parts)
+            return " ".join(parts)
+    return ""
 
 
 def detect_multimodal(messages: list[dict]) -> tuple[bool, bool]:
