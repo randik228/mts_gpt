@@ -181,6 +181,56 @@ except: pass
 print('REGISTERED')
 " FILTER_CODE="$FILTER_CODE" 2>/dev/null && echo "[GPTHub] Auto-search filter registered." && break
   done
+
+  # Register virtual model display names (emoji + description)
+  # These are stored in OpenWebUI DB — absent on fresh installs
+  python3 -c "
+import json, urllib.request, sys, os
+
+MODELS = [
+  ('auto',           '\u26a1 auto \u2014 \u0443\u043d\u0438\u0432\u0435\u0440\u0441\u0430\u043b\u044c\u043d\u044b\u0439',     '\u0410\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u0432\u044b\u0431\u0438\u0440\u0430\u0435\u0442 \u043b\u0443\u0447\u0448\u0443\u044e \u043c\u043e\u0434\u0435\u043b\u044c. \u041e\u043f\u0442\u0438\u043c\u0430\u043b\u044c\u043d\u043e \u0434\u043b\u044f \u0431\u043e\u043b\u044c\u0448\u0438\u043d\u0441\u0442\u0432\u0430 \u0437\u0430\u0434\u0430\u0447.'),
+  ('auto-code',      '\U0001f4bb auto-code \u2014 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435', '\u041e\u043f\u0442\u0438\u043c\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d \u0434\u043b\u044f \u043d\u0430\u043f\u0438\u0441\u0430\u043d\u0438\u044f, \u043e\u0442\u043b\u0430\u0434\u043a\u0438 \u0438 \u0430\u043d\u0430\u043b\u0438\u0437\u0430 \u043a\u043e\u0434\u0430. \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442 Qwen3-Coder 480B.'),
+  ('auto-reasoning', '\U0001f9e0 auto-reasoning \u2014 \u0433\u043b\u0443\u0431\u043e\u043a\u0438\u0439 \u0430\u043d\u0430\u043b\u0438\u0437',      '\u041f\u043e\u0448\u0430\u0433\u043e\u0432\u044b\u0435 \u0440\u0430\u0441\u0441\u0443\u0436\u0434\u0435\u043d\u0438\u044f \u0434\u043b\u044f \u0441\u043b\u043e\u0436\u043d\u044b\u0445 \u0437\u0430\u0434\u0430\u0447. \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442 DeepSeek-R1.'),
+  ('auto-creative',  '\u2728 auto-creative \u2014 \u0442\u0432\u043e\u0440\u0447\u0435\u0441\u0442\u0432\u043e',                '\u0422\u0432\u043e\u0440\u0447\u0435\u0441\u043a\u043e\u0435 \u043f\u0438\u0441\u044c\u043c\u043e, \u0433\u0435\u043d\u0435\u0440\u0430\u0446\u0438\u044f \u0438\u0434\u0435\u0439, \u0441\u0442\u043e\u0440\u0438\u0442\u0435\u043b\u043b\u0438\u043d\u0433. \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442 Qwen3-235B.'),
+  ('auto-fast',      '\U0001f680 auto-fast \u2014 \u0431\u044b\u0441\u0442\u0440\u044b\u0439',                                 '\u041c\u043e\u043b\u043d\u0438\u0435\u043d\u043e\u0441\u043d\u044b\u0435 \u043e\u0442\u0432\u0435\u0442\u044b \u0434\u043b\u044f \u043f\u0440\u043e\u0441\u0442\u044b\u0445 \u0437\u0430\u043f\u0440\u043e\u0441\u043e\u0432. \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442 GPT-OSS 20B.'),
+]
+
+try:
+    req = urllib.request.Request(
+        'http://localhost:8080/api/v1/auths/signup',
+        data=json.dumps({'name':'Admin','email':'admin@localhost','password':'admin','profile_image_url':''}).encode(),
+        headers={'Content-Type':'application/json'}
+    )
+    urllib.request.urlopen(req, timeout=3)
+except: pass
+
+try:
+    req = urllib.request.Request(
+        'http://localhost:8080/api/v1/auths/signin',
+        data=json.dumps({'email':'admin@localhost','password':'admin'}).encode(),
+        headers={'Content-Type':'application/json'}
+    )
+    token = json.loads(urllib.request.urlopen(req, timeout=3).read())['token']
+except Exception as e:
+    print('signin failed:', e); sys.exit(1)
+
+headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+
+for mid, name, desc in MODELS:
+    payload = json.dumps({'id': mid, 'name': name, 'meta': {'profile_image_url': '', 'description': desc, 'capabilities': {}}, 'params': {}, 'base_model_id': None}).encode()
+    # Try update first, then create
+    try:
+        req_upd = urllib.request.Request(f'http://localhost:8080/api/v1/models/model/update?id={mid}', data=payload, headers=headers, method='POST')
+        urllib.request.urlopen(req_upd, timeout=5)
+        print('updated', mid)
+    except:
+        try:
+            req_cre = urllib.request.Request('http://localhost:8080/api/v1/models/create', data=payload, headers=headers, method='POST')
+            urllib.request.urlopen(req_cre, timeout=5)
+            print('created', mid)
+        except Exception as e:
+            print('failed', mid, e)
+" 2>/dev/null && echo "[GPTHub] Model display names configured."
 ) &
 
 # Run the original OpenWebUI entrypoint
