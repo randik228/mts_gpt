@@ -190,12 +190,14 @@ async def generate_image(prompt: str, *, model: str = "qwen-image-lightning") ->
 
     # Attempt 1: OpenAI-compatible images endpoint
     try:
+        logger.info("generate_image: attempting images.generate model=%s prompt=%s", model, prompt[:60])
         response = await client.images.generate(
             model=model,
             prompt=prompt,
             n=1,
             size="1024x1024",
         )
+        logger.info("generate_image: images.generate returned data=%d", len(response.data) if response.data else 0)
         if response.data:
             img = response.data[0]
             url = img.url or ""
@@ -205,9 +207,10 @@ async def generate_image(prompt: str, *, model: str = "qwen-image-lightning") ->
             elif b64:
                 return f"![Сгенерированное изображение](data:image/png;base64,{b64})"
     except Exception as e:
-        logger.warning("images.generate failed (model=%s): %s", model, e)
+        logger.warning("images.generate failed (model=%s): %s: %s", model, type(e).__name__, e)
 
-    # Attempt 2: Use chat completions with image model
+    # Attempt 2: Use chat completions with image model (fallback)
+    logger.info("generate_image: falling back to chat_complete model=%s", model)
     try:
         completion = await chat_complete(
             model=model,
