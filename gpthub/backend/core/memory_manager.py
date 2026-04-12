@@ -43,49 +43,21 @@ CREATE TABLE IF NOT EXISTS memories (
     content     TEXT NOT NULL,
     source_chat TEXT,
     relevance   REAL NOT NULL DEFAULT 1.0,
+    tag         TEXT NOT NULL DEFAULT 'fact',
+    importance  REAL NOT NULL DEFAULT 0.7,
     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
 """
 
+_MIGRATE_TAG = "ALTER TABLE memories ADD COLUMN tag TEXT NOT NULL DEFAULT 'fact'"
+_MIGRATE_IMPORTANCE = "ALTER TABLE memories ADD COLUMN importance REAL NOT NULL DEFAULT 0.7"
+
 # Embedding dimension for bge-m3
 _DIM = 1024
 
-# Patterns for trivial facts that pollute memory
-_TRIVIAL_PATTERNS = [
-    # Language facts
-    r"(?i)(user|пользователь).{0,30}(speaks?|говорит|пишет|общается).{0,30}(russian|english|русск|английск)",
-    r"(?i)(conversation|диалог|чат).{0,20}(in|на).{0,20}(russian|english|русск|английск)",
-    r"(?i)^(user speaks|пользователь говорит|conversation is in|пользователь общается)",
-    # OpenWebUI internal requests
-    r"(?i)(пользователь|user).{0,40}(теги|tags|заголовок|title|название чата)",
-    r"(?i)(просит|asks?|requests?).{0,40}(сгенерир|generat).{0,40}(теги|tags|заголовок|title)",
-    r"(?i)(история чата|chat history|чат содержит|conversation contains)",
-    # One-time tasks / queries (NOT about the user)
-    r"(?i)^пользователь (просит|хочет|запрашивает|спрашивает|ищет|искал|решал|решает|проверя)",
-    r"(?i)^пользователь (задал|задаёт|отправил|написал|спросил|попросил|тестирует|тестировал)",
-    r"(?i)(спрашивает|интересуется|ищет).{0,30}(информаци|данные|результат|ответ|новост|погод|курс)",
-    r"(?i)(решал?|вычисл|считал?).{0,30}(задач[аеу]|пример|уравнени|умножени|деление|сложени)",
-    r"(?i)(задач[аеу]|уравнени|вычислени|умножени)\b",
-    r"(?i)(веб.поиск|web.search|искал в интернете|нашёл в интернете|результат.* поиска)",
-    r"(?i)(генераци[яю]|сгенерировал|нарисовал|создал изображение|image generat)",
-    r"(?i)(тестиру|проверя|работаешь|работает ли|test|check)",
-    r"(?i)(код|code|script|function|функци).{0,20}(написал|создал|запросил|просит)",
-    r"(?i)^(the user|user asked|user wants|user is asking|user requested)",
-    # Facts about the conversation itself, not the person
-    r"(?i)(в (этом|данном|текущем) (чате|диалоге|разговоре)|in this (chat|conversation))",
-    r"(?i)(обсуждали|обсуждает|discussed|talking about)",
-]
-
-import re as _re
-
-def _is_trivial_fact(fact: str) -> bool:
-    """Return True if the fact is low-signal and should not be stored."""
-    f = fact.strip()
-    for pattern in _TRIVIAL_PATTERNS:
-        if _re.search(pattern, f):
-            return True
-    return False
+# Trivial fact filtering is now handled by the LLM prompt (structured JSON with importance scores).
+# Facts with importance < 0.5 are filtered out in extract_facts().
 
 # Sentinel: index row → memory id (stored in a helper table so it survives restarts)
 _FAISS_MAP_DDL = """
@@ -131,6 +103,12 @@ class MemoryManager:
     async def _init_db(self) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.executescript(_DDL + _FAISS_MAP_DDL)
+            # Migrate existing DBs: add tag/importance columns if missing
+            for stmt in (_MIGRATE_TAG, _MIGRATE_IMPORTANCE):
+                try:
+                    await db.execute(stmt)
+                except Exception:
+                    pass  # column already exists
             await db.commit()
 
     async def _load_index(self) -> None:
@@ -158,6 +136,8 @@ class MemoryManager:
         scope: str = "personal",
         source_chat: str | None = None,
         relevance: float = 1.0,
+        tag: str = "fact",
+        importance: float = 0.7,
     ) -> str:
         """
         Embed `content` via bge-m3, add to FAISS, persist metadata in SQLite.
@@ -179,9 +159,9 @@ class MemoryManager:
                 row_id = cursor.lastrowid  # 1-based
 
                 await db.execute(
-                    """INSERT INTO memories (id, user_id, scope, content, source_chat, relevance)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (memory_id, user_id, scope, content, source_chat, relevance),
+                    """INSERT INTO memories (id, user_id, scope, content, source_chat, relevance, tag, importance)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (memory_id, user_id, scope, content, source_chat, relevance, tag, importance),
                 )
                 await db.commit()
 
@@ -257,27 +237,29 @@ class MemoryManager:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             if include_team:
-                # Include personal memories for this user AND all team-scoped memories
                 cursor = await db.execute(
-                    f"""SELECT id, content FROM memories
+                    f"""SELECT id, content, importance FROM memories
                         WHERE id IN ({id_placeholders})
                           AND (user_id = ? OR scope = 'team')""",
                     (*memory_ids, user_id),
                 )
             else:
                 cursor = await db.execute(
-                    f"""SELECT id, content FROM memories
+                    f"""SELECT id, content, importance FROM memories
                         WHERE id IN ({id_placeholders}) AND user_id = ?""",
                     (*memory_ids, user_id),
                 )
             mem_rows = await cursor.fetchall()
 
-        # Sort by original FAISS score (best first)
+        # Weighted ranking: combined_score = cosine_similarity * 0.7 + importance * 0.3
         id_to_content = {r["id"]: r["content"] for r in mem_rows}
+        id_to_importance = {r["id"]: float(r["importance"] or 0.7) for r in mem_rows}
         ordered = sorted(
-            [(score_map[rid], mid) for rid, mid in zip(
-                [r["row_id"] for r in rows], memory_ids
-            ) if mid in id_to_content],
+            [
+                (score_map[rid] * 0.7 + id_to_importance.get(mid, 0.7) * 0.3, mid)
+                for rid, mid in zip([r["row_id"] for r in rows], memory_ids)
+                if mid in id_to_content
+            ],
             reverse=True,
         )
 
@@ -295,49 +277,51 @@ class MemoryManager:
         source_chat: str | None = None,
     ) -> list[str]:
         """
-        Extract memorable facts from a conversation via gpt-oss-20b,
+        Extract memorable facts from a conversation via LLM,
         embed each fact, and store in FAISS + SQLite.
         Returns the list of extracted fact strings.
         Designed to be called fire-and-forget after streaming finishes.
         """
         try:
-            facts = await extract_facts(messages)
+            fact_items = await extract_facts(messages)
         except Exception:
             logger.warning("extract_and_save: fact extraction failed", exc_info=True)
             return []
 
-        if not facts:
+        if not fact_items:
             return []
 
         saved: list[str] = []
-        logger.info("extract_and_save: extracted %d raw facts: %s",
-                     len(facts), [f[:50] for f in facts])
-        for fact in facts:
-            # Filter out trivial / low-signal facts
-            if _is_trivial_fact(fact):
-                logger.info("  SKIP trivial: %s", fact[:60])
+        logger.info("extract_and_save: extracted %d facts: %s",
+                     len(fact_items), [(f.get("fact", "")[:40], f.get("tag"), f.get("importance")) for f in fact_items])
+
+        for item in fact_items:
+            fact_text = item.get("fact", "").strip()
+            tag = item.get("tag", "fact")
+            importance = float(item.get("importance", 0.7))
+
+            if not fact_text or len(fact_text) < 5:
                 continue
-            # Skip very short facts (noise) — but allow names (5+ chars)
-            if len(fact.strip()) < 5:
-                logger.info("  SKIP short: %s", fact[:60])
-                continue
+
             try:
                 # Deduplication: skip if nearly identical memory already exists
-                is_dup = await self._is_duplicate(user_id, fact)
-                if is_dup:
-                    logger.debug("Skipping duplicate fact: %s", fact)
+                if await self._is_duplicate(user_id, fact_text):
+                    logger.debug("  SKIP duplicate: %s", fact_text[:60])
                     continue
+
                 await self.save_memory(
                     user_id,
-                    fact,
+                    fact_text,
                     scope="personal",
                     source_chat=source_chat,
+                    tag=tag,
+                    importance=importance,
                 )
-                saved.append(fact)
+                saved.append(fact_text)
             except Exception:
-                logger.warning("extract_and_save: failed to save fact: %s", fact, exc_info=True)
+                logger.warning("extract_and_save: failed to save: %s", fact_text, exc_info=True)
 
-        logger.info("extract_and_save: saved %d/%d facts for user=%s", len(saved), len(facts), user_id)
+        logger.info("extract_and_save: saved %d/%d for user=%s", len(saved), len(fact_items), user_id)
         return saved
 
     async def _is_duplicate(self, user_id: str, fact: str, threshold: float = 0.92) -> bool:
@@ -406,6 +390,59 @@ class MemoryManager:
             logger.info("Deleted memory %s (SQLite + faiss_map)", memory_id)
 
         return deleted
+
+    async def purge_all(self, user_id: str, *, scope: str | None = None) -> int:
+        """
+        Delete all memories for a user and rebuild FAISS index from remaining data.
+        Returns count of deleted memories.
+        """
+        memories = await self.list_memories(user_id, scope=scope, limit=10000)
+        count = 0
+        for m in memories:
+            await self.delete_memory(m["id"])
+            count += 1
+
+        # Rebuild FAISS index from remaining faiss_map entries
+        await self._rebuild_faiss()
+        return count
+
+    async def _rebuild_faiss(self) -> None:
+        """Rebuild FAISS index from scratch using only memories that still exist."""
+        async with self._lock:
+            # 1. Clear faiss_map completely
+            async with aiosqlite.connect(self._db_path) as db:
+                await db.execute("DELETE FROM faiss_map")
+                # 2. Get all remaining memories
+                rows = await (await db.execute(
+                    "SELECT id, content FROM memories ORDER BY created_at"
+                )).fetchall()
+                # 3. Re-create faiss_map entries
+                for r in rows:
+                    await db.execute("INSERT INTO faiss_map (memory_id) VALUES (?)", (r[0],))
+                await db.commit()
+
+            # 4. Create fresh FAISS index
+            self._index = faiss.IndexFlatIP(_DIM)
+
+            if rows:
+                contents = [r[1] for r in rows]
+                vecs = await embed(contents)
+                arr = np.array(vecs, dtype=np.float32)
+                for i in range(len(arr)):
+                    arr[i] = _normalise(arr[i])
+                self._index.add(arr)
+
+            self._save_index()
+            logger.info("FAISS rebuilt: %d vectors", self._index.ntotal)
+
+    async def list_users(self) -> list[str]:
+        """Return distinct user_ids that have personal memories (excluding __team__)."""
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT DISTINCT user_id FROM memories WHERE user_id != '__team__' ORDER BY user_id"
+            )
+            rows = await cursor.fetchall()
+        return [r[0] for r in rows]
 
     async def get_memory(self, memory_id: str) -> dict | None:
         async with aiosqlite.connect(self._db_path) as db:

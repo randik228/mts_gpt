@@ -32,6 +32,8 @@ MODELS: dict[str, ModelInfo] = {
     # Vision
     "qwen3-vl-30b-a3b-instruct":            ModelInfo("qwen3-vl-30b-a3b-instruct",            "vision",     None, 0.85, supports_vision=True),
     "qwen2.5-vl":                           ModelInfo("qwen2.5-vl",                           "vision_alt", None, 0.85, supports_vision=True),
+    "qwen2.5-vl-72b":                       ModelInfo("qwen2.5-vl-72b",                       "vision_large", None, None, supports_vision=True),
+    "cotype-pro-vl-32b":                    ModelInfo("cotype-pro-vl-32b",                    "vision_cotype", None, None, supports_vision=True),
     # Audio
     "whisper-turbo-local":                  ModelInfo("whisper-turbo-local",                  "audio",      None, None, supports_audio=True),
     "whisper-medium":                       ModelInfo("whisper-medium",                       "audio_alt",  None, None, supports_audio=True),

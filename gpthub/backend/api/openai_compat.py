@@ -7,6 +7,7 @@ POST /v1/embeddings          — proxy to bge-m3
 """
 import asyncio
 import json
+import os
 import time
 import logging
 from typing import AsyncIterator
@@ -22,6 +23,7 @@ from core.memory_manager import get_manager
 from core.reasoning_parser import StreamingReasoningParser, parse as parse_reasoning, build_reasoning_system_prompt, NATIVE_REASONING_MODELS
 from core.analytics_store import get_store as get_analytics
 from core.web_search import fetch_page, detect_urls, format_page_content
+from core.pptx_builder import generate_pptx, parse_presentation_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -146,8 +148,8 @@ async def chat_completions(request: Request):
     )
 
     logger.info(
-        "chat_completions model=%s → %s [%s: %s] stream=%s",
-        req.model, real_model, routing_method, routing_reason, req.stream,
+        "chat_completions model=%s → %s [%s: %s] stream=%s user=%s",
+        req.model, real_model, routing_method, routing_reason, req.stream, req.user,
     )
 
     # --- Memory inject (before request) ---
@@ -166,6 +168,13 @@ async def chat_completions(request: Request):
     # --- Image generation special handling ---
     if real_model in ("qwen-image-lightning", "qwen-image"):
         return await _handle_image_generation(
+            req, messages_raw, real_model, routing_method, routing_reason, user_id,
+            stream=req.stream,
+        )
+
+    # --- Presentation generation special handling ---
+    if routing_reason == "presentation generation request":
+        return await _handle_presentation_generation(
             req, messages_raw, real_model, routing_method, routing_reason, user_id,
             stream=req.stream,
         )
@@ -479,7 +488,7 @@ async def _inject_memories(messages: list[dict], user_id: str) -> list[dict]:
     try:
         manager = await get_manager()
         query = _extract_text(messages)
-        memories = await manager.search_memories(user_id, query, top_k=3, min_score=0.50)
+        memories = await manager.search_memories(user_id, query, top_k=5, min_score=0.35)
     except Exception:
         logger.warning("Memory inject failed, continuing without memories", exc_info=True)
         return messages
@@ -500,16 +509,18 @@ async def _inject_memories(messages: list[dict], user_id: str) -> list[dict]:
     else:
         result.insert(0, {"role": "system", "content": mem_block})
 
-    logger.debug("Injected %d memories for user=%s", len(memories), user_id)
+    logger.info("Injected %d memories for user=%s: %s", len(memories), user_id, [m[:40] for m in memories])
     return result
 
 
 async def _memorize(user_id: str, messages: list[dict], assistant_reply: str) -> None:
     """Fire-and-forget: extract facts from the completed exchange and save them."""
+    logger.info("_memorize START user=%s msgs=%d reply_len=%d", user_id, len(messages), len(assistant_reply))
     try:
         manager = await get_manager()
         full_exchange = messages + [{"role": "assistant", "content": assistant_reply}]
-        await manager.extract_and_save(user_id, full_exchange)
+        saved = await manager.extract_and_save(user_id, full_exchange)
+        logger.info("_memorize DONE user=%s saved=%d", user_id, len(saved))
     except Exception:
         logger.warning("Background memorise failed for user=%s", user_id, exc_info=True)
 
@@ -685,6 +696,130 @@ async def _handle_image_generation(
         }],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }, headers=hdrs)
+
+
+# ---------------------------------------------------------------------------
+# Presentation (PPTX) generation handler
+# ---------------------------------------------------------------------------
+
+_PPTX_SYSTEM_PROMPT = """You are a presentation generator. The user wants a PowerPoint presentation.
+Generate the content as a JSON object with this EXACT structure (no markdown fences, ONLY raw JSON):
+{"title": "Presentation Title", "slides": [{"title": "Slide Title", "content": "Bullet point 1\\nBullet point 2\\nBullet point 3"}, ...]}
+
+Rules:
+- Generate 5-10 slides unless the user specifies a number
+- Each slide should have 3-5 bullet points
+- Content should be informative and well-structured
+- Write in the same language as the user's request
+- Do NOT wrap in markdown code blocks, output ONLY valid JSON"""
+
+
+async def _handle_presentation_generation(
+    req: "ChatRequest",
+    messages: list[dict],
+    model: str,
+    routing_method: str,
+    routing_reason: str,
+    user_id: str,
+    *,
+    stream: bool = False,
+) -> JSONResponse | StreamingResponse:
+    """Generate a PPTX presentation via LLM + python-pptx."""
+
+    # Build messages with system prompt for structured output
+    pptx_messages = [{"role": "system", "content": _PPTX_SYSTEM_PROMPT}]
+    for msg in messages:
+        if msg.get("role") == "user":
+            pptx_messages.append(msg)
+
+    hdrs = {
+        "X-GPTHub-Model": model,
+        "X-GPTHub-Requested-Model": req.model,
+        "X-GPTHub-Routing-Method": routing_method,
+        "X-GPTHub-Routing-Reason": routing_reason,
+    }
+
+    try:
+        completion = await mws_client.chat_complete(
+            model=model,
+            messages=pptx_messages,
+            temperature=0.7,
+            max_tokens=4096,
+        )
+        raw = completion.choices[0].message.content or ""
+        logger.info("PPTX raw LLM output length: %d", len(raw))
+
+        title, slides = parse_presentation_json(raw)
+        filename = generate_pptx(title, slides)
+
+        # Build response with download link
+        result = (
+            f"Презентация **\"{title}\"** готова! ({len(slides)} слайдов)\n\n"
+            f"[📥 Скачать презентацию (.pptx)](http://localhost:8000/files/{filename})\n\n"
+            f"### Содержание:\n"
+        )
+        for i, s in enumerate(slides, 1):
+            result += f"{i}. {s.get('title', '')}\n"
+
+    except Exception as e:
+        logger.warning("Presentation generation failed: %s", e, exc_info=True)
+        result = (
+            f"⚠️ Не удалось создать презентацию.\n\n"
+            f"Ошибка: {e}\n\n"
+            f"Попробуйте переформулировать запрос."
+        )
+
+    if stream:
+        async def _pptx_stream():
+            chunk = _make_delta_chunk(model, "pptx", result)
+            chunk["choices"][0]["finish_reason"] = None
+            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()
+            done = _make_delta_chunk(model, "pptx-done", "")
+            done["choices"][0]["finish_reason"] = "stop"
+            yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n".encode()
+            yield b"data: [DONE]\n\n"
+
+        return StreamingResponse(
+            _pptx_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", **hdrs},
+        )
+
+    return JSONResponse(content={
+        "id": f"gpthub-pptx-{int(time.time())}",
+        "object": "chat.completion",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": result},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }, headers=hdrs)
+
+
+# ---------------------------------------------------------------------------
+# GET /files/{filename} — serve generated files (PPTX, etc.)
+# ---------------------------------------------------------------------------
+
+@router.get("/files/{filename}")
+async def serve_file(filename: str):
+    """Serve generated files for download."""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+
+    # Sanitize filename — prevent path traversal
+    safe_name = Path(filename).name
+    filepath = Path(os.environ.get("DATA_DIR", "/app/data")) / "files" / safe_name
+
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        path=str(filepath),
+        filename=safe_name,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
 
 
 # ---------------------------------------------------------------------------

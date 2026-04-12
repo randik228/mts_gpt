@@ -9,6 +9,8 @@ interface Memory {
   content: string;
   source_chat: string | null;
   relevance: number;
+  tag: string;
+  importance: number;
   created_at: string;
 }
 
@@ -21,9 +23,29 @@ function fmtDate(s: string) {
   });
 }
 
-function RelevanceBar({ value }: { value: number }) {
+const TAG_STYLES: Record<string, { bg: string; color: string; emoji: string }> = {
+  fact:       { bg: "rgba(96,165,250,.15)",  color: "#60a5fa", emoji: "📌" },
+  skill:     { bg: "rgba(52,211,153,.15)",  color: "#34d399", emoji: "⚡" },
+  preference: { bg: "rgba(251,191,36,.15)",  color: "#fbbf24", emoji: "⭐" },
+  project:   { bg: "rgba(167,139,250,.15)", color: "#a78bfa", emoji: "📂" },
+  context:   { bg: "rgba(244,114,182,.15)", color: "#f472b6", emoji: "🔗" },
+};
+
+function TagBadge({ tag }: { tag: string }) {
+  const s = TAG_STYLES[tag] ?? TAG_STYLES.fact;
+  return (
+    <span style={{
+      background: s.bg, color: s.color, borderRadius: 4,
+      padding: "1px 6px", fontSize: 10, fontWeight: 600,
+    }}>
+      {s.emoji} {tag}
+    </span>
+  );
+}
+
+function ImportanceBar({ value }: { value: number }) {
   const pct = Math.min(100, Math.round(value * 100));
-  const color = pct > 70 ? "#4ade80" : pct > 40 ? "#facc15" : "#f87171";
+  const color = pct >= 80 ? "#4ade80" : pct >= 60 ? "#facc15" : "#f87171";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <div style={{
@@ -117,8 +139,9 @@ function AddTeamMemory({ onAdded }: { onAdded: () => void }) {
 
 export default function MemoryViewer() {
   const [scopeMode,     setScopeMode]     = useState<ScopeMode>("personal");
-  const [userId,        setUserId]        = useState("default");
-  const [inputId,       setInputId]       = useState("default");
+  const [userId,        setUserId]        = useState("");
+  const [inputId,       setInputId]       = useState("");
+  const [knownUsers,    setKnownUsers]    = useState<string[]>([]);
   const [memories,      setMemories]      = useState<Memory[]>([]);
   const [query,         setQuery]         = useState("");
   const [searchResults, setSearchResults] = useState<string[] | null>(null);
@@ -135,14 +158,35 @@ export default function MemoryViewer() {
         : `${PROXY}/api/memory?user_id=${encodeURIComponent(uid)}&scope=personal&limit=100`;
       const r = await fetch(url);
       const data = await r.json();
-      // Guard: API may return an error object on failure
       setMemories(Array.isArray(data) ? data : []);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(userId, scopeMode); }, [userId, scopeMode, load]);
+  // Auto-detect first available user on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${PROXY}/api/memory/users`);
+        const data = await r.json();
+        const users: string[] = data.users ?? [];
+        setKnownUsers(users);
+        if (users.length > 0) {
+          setUserId(users[0]);
+          setInputId(users[0]);
+        } else {
+          setUserId("default");
+          setInputId("default");
+        }
+      } catch {
+        setUserId("default");
+        setInputId("default");
+      }
+    })();
+  }, []);
+
+  useEffect(() => { if (userId) load(userId, scopeMode); }, [userId, scopeMode, load]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -194,6 +238,12 @@ export default function MemoryViewer() {
     return acc;
   }, {});
 
+  const tagGroups = memories.reduce<Record<string, number>>((acc, m) => {
+    const tag = m.tag ?? "fact";
+    acc[tag] = (acc[tag] ?? 0) + 1;
+    return acc;
+  }, {});
+
   const isTeam = scopeMode === "team";
 
   return (
@@ -208,12 +258,15 @@ export default function MemoryViewer() {
           <div className="stat-tile-value red">{memories.length}</div>
           <div className="stat-tile-label">Воспоминаний</div>
         </div>
-        {Object.entries(scopeGroups).map(([scope, cnt]) => (
-          <div key={scope} className="stat-tile">
-            <div className="stat-tile-value">{cnt}</div>
-            <div className="stat-tile-label">scope: {scope}</div>
-          </div>
-        ))}
+        {Object.entries(tagGroups).map(([tag, cnt]) => {
+          const s = TAG_STYLES[tag] ?? TAG_STYLES.fact;
+          return (
+            <div key={tag} className="stat-tile">
+              <div className="stat-tile-value" style={{ color: s.color }}>{cnt}</div>
+              <div className="stat-tile-label">{s.emoji} {tag}</div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Scope + User selector */}
@@ -226,16 +279,27 @@ export default function MemoryViewer() {
         {/* Personal: show user_id input */}
         {!isTeam && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-            <input
-              className="input-field"
-              value={inputId}
-              onChange={e => setInputId(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && setUserId(inputId)}
-              placeholder="user_id"
-            />
-            <button className="btn btn-primary" onClick={() => setUserId(inputId)}>
-              Загрузить
-            </button>
+            {knownUsers.length > 0 ? (
+              <select
+                className="input-field"
+                value={userId}
+                onChange={e => { setUserId(e.target.value); setInputId(e.target.value); }}
+                style={{ flex: 1 }}
+              >
+                {knownUsers.map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="input-field"
+                value={inputId}
+                onChange={e => setInputId(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && setUserId(inputId)}
+                placeholder="user_id"
+                style={{ flex: 1 }}
+              />
+            )}
             <button className="btn btn-ghost btn-icon" onClick={() => load(userId, scopeMode)}
                     disabled={loading} title="Обновить">
               ↻
@@ -349,6 +413,7 @@ export default function MemoryViewer() {
                 <div className="mem-body">
                   <div className="mem-content">{m.content}</div>
                   <div className="mem-meta">
+                    <TagBadge tag={m.tag ?? "fact"} />
                     <span
                       style={{
                         background: m.scope === "team"
@@ -363,7 +428,7 @@ export default function MemoryViewer() {
                     >
                       {m.scope === "team" ? "👥 team" : "👤 personal"}
                     </span>
-                    <span><RelevanceBar value={m.relevance} /></span>
+                    <span><ImportanceBar value={m.importance ?? m.relevance} /></span>
                     <span>🕐 {fmtDate(m.created_at)}</span>
                     {m.user_id && m.scope === "team" && (
                       <span style={{ fontSize: 10, color: "var(--text-faint)" }}>

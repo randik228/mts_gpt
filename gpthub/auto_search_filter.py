@@ -1,12 +1,19 @@
 """
 title: Auto Web Search
-description: Automatically enables OpenWebUI native web search when the query needs current information
+description: Automatically enables OpenWebUI native web search when the query needs current information. Also injects user identity for per-user memory.
 """
 from typing import Optional
 
 
 class Filter:
     def inlet(self, body: dict, __user__: Optional[dict] = None) -> dict:
+        # Inject user identity for per-user memory in our proxy
+        if __user__:
+            user_email = __user__.get("email", "")
+            user_name = __user__.get("name", "")
+            user_id = __user__.get("id", "")
+            body["user"] = user_email or user_id or "default"
+
         messages = body.get("messages", [])
         if not messages:
             return body

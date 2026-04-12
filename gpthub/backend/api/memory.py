@@ -42,6 +42,14 @@ class MemorySearchRequest(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@router.get("/users")
+async def list_memory_users():
+    """Return distinct user_ids that have at least one personal memory."""
+    manager = await get_manager()
+    users = await manager.list_users()
+    return {"users": users}
+
+
 @router.get("")
 async def list_memories(
     user_id: str = Query("default"),
@@ -109,13 +117,10 @@ async def delete_all_memories(
 ):
     """
     Bulk delete all memories for a user (or all team memories if scope=team).
+    Also rebuilds FAISS index to remove orphaned vectors.
     """
     manager = await get_manager()
-    memories = await manager.list_memories(user_id, scope=scope, limit=1000)
-    count = 0
-    for m in memories:
-        await manager.delete_memory(m["id"])
-        count += 1
+    count = await manager.purge_all(user_id, scope=scope)
     return {"status": "deleted", "count": count}
 
 

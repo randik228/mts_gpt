@@ -63,6 +63,9 @@ _KEYWORD_RULES: list[tuple[re.Pattern, str, str]] = [
         re.I,
     ), "deepseek-r1-distill-qwen-32b", "reasoning/logic request"),
 
+    # NOTE: Presentation detection removed from keywords — handled by LLM intent
+    # classifier which distinguishes "create a presentation" from "tell me about presentations"
+
     # Creative / complex
     (re.compile(
         r"\b(напиши\s+(рассказ|стих|эссе|историю|сценари)|creative|story|poem|essay"
@@ -71,6 +74,63 @@ _KEYWORD_RULES: list[tuple[re.Pattern, str, str]] = [
     ), "Qwen3-235B-A22B-Instruct-2507-FP8", "creative/complex request"),
 
 ]
+
+# ---------------------------------------------------------------------------
+# LLM intent classification — fast call for ambiguous requests
+# ---------------------------------------------------------------------------
+
+_INTENT_CLASSIFY_PROMPT = (
+    "Классифицируй намерение пользователя. Ответь ОДНИМ словом — только название категории.\n\n"
+    "Категории:\n"
+    "- PRESENTATION — пользователь просит СОЗДАТЬ/СДЕЛАТЬ презентацию, слайды, PPTX, pitch deck. "
+    "ВАЖНО: если пользователь просто спрашивает про презентации или обсуждает их — это НЕ PRESENTATION, а GENERAL.\n"
+    "- IMAGE — пользователь хочет СГЕНЕРИРОВАТЬ/НАРИСОВАТЬ изображение или картинку\n"
+    "- CODE — пользователь хочет написать, отладить или разобрать код/программу\n"
+    "- SEARCH — пользователю нужна актуальная информация (новости, погода, цены, события)\n"
+    "- REASONING — пользователь хочет логический анализ, математику, доказательство\n"
+    "- GENERAL — всё остальное: вопросы, перевод, объяснения, общение, творчество\n\n"
+    "Сообщение: {message}\n"
+    "Категория:"
+)
+
+_INTENT_TO_MODEL: dict[str, tuple[str, str]] = {
+    "PRESENTATION": ("Qwen3-235B-A22B-Instruct-2507-FP8", "presentation generation request"),
+    "IMAGE": ("qwen-image-lightning", "image generation request"),
+    "CODE": ("qwen3-coder-480b-a35b", "code/programming request"),
+    "SEARCH": ("gpt-oss-120b", "web search request"),
+    "REASONING": ("deepseek-r1-distill-qwen-32b", "reasoning/logic request"),
+}
+
+
+async def _llm_classify_intent(text: str) -> RoutingDecision | None:
+    """Use a fast LLM to classify user intent when keywords don't match."""
+    from core.mws_client import chat_complete
+
+    prompt = _INTENT_CLASSIFY_PROMPT.format(message=text[:500])
+
+    try:
+        completion = await chat_complete(
+            model="gpt-oss-20b",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=200,
+        )
+        msg = completion.choices[0].message
+        raw_answer = msg.content or getattr(msg, "reasoning_content", None) or ""
+        answer = raw_answer.strip().upper()
+        logger.info("LLM intent classifier raw='%s' for: %s", raw_answer.strip()[:100], text[:80])
+
+        for intent, (model_id, reason) in _INTENT_TO_MODEL.items():
+            if intent in answer:
+                logger.info("LLM intent → %s → %s", intent, model_id)
+                return RoutingDecision(model_id, reason, "llm_intent")
+
+        return None
+
+    except Exception:
+        logger.warning("LLM intent classification failed, falling through", exc_info=True)
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Embedding-based fallback: anchor phrases per model
@@ -173,7 +233,12 @@ async def route(
             logger.debug("Smart Router keyword match: %s → %s", reason, model_id)
             return RoutingDecision(model_id, reason, "keyword")
 
-    # 3. Embedding cosine similarity (ambiguous fallback)
+    # 3. LLM intent classification (catches natural-language requests keywords miss)
+    llm_decision = await _llm_classify_intent(text)
+    if llm_decision:
+        return llm_decision
+
+    # 4. Embedding cosine similarity (final fallback)
     try:
         decision = await _embedding_route(text)
         if decision:
@@ -181,7 +246,7 @@ async def route(
     except Exception:
         logger.warning("Smart Router: embedding fallback failed, using default", exc_info=True)
 
-    # 4. Default
+    # 5. Default
     return RoutingDecision("gpt-oss-20b", "no strong signal", "default")
 
 

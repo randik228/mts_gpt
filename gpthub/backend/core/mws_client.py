@@ -151,30 +151,33 @@ async def list_models() -> list[str]:
 # ---------------------------------------------------------------------------
 
 _EXTRACT_FACTS_PROMPT = """\
-Проанализируй диалог и извлеки ТОЛЬКО важные долгосрочные факты о пользователе.
+Проанализируй диалог. Извлеки ТОЛЬКО долгосрочные факты о пользователе, полезные в будущих диалогах.
 
-СОХРАНЯЙ (важно для будущих диалогов):
+СОХРАНЯЙ:
 - Имя, возраст, профессия, место работы/учёбы
-- Предпочтения в общении (формальное/неформальное, краткие/подробные ответы)
-- Хобби, интересы, любимые вещи
-- Навыки и уровень знаний (программист, студент, учёный и т.д.)
-- Личные обстоятельства (семья, город, часовой пояс)
-- Постоянные предпочтения ("люблю Python", "предпочитаю краткие ответы")
+- Навыки и экспертиза (язык программирования, область знаний)
+- Предпочтения (стиль общения, инструменты, технологии)
+- Личные обстоятельства (город, семья, проекты)
+- Долгосрочные цели и задачи
 
-НЕ СОХРАНЯЙ (мусор, одноразовые запросы):
-- Что пользователь искал в интернете
-- Какие задачи решал (примеры, уравнения)
-- Разовые вопросы ("какая погода", "кто победил")
-- Тема текущего разговора (это и так видно из истории)
-- Запросы на генерацию кода/текста/изображений
-- Что пользователь тестировал или проверял
+НЕ СОХРАНЯЙ:
+- Разовые запросы (поиск, вычисления, генерация картинок/кода/презентаций)
+- Тему текущего разговора
 - Факты о языке общения
+- Что пользователь тестировал/проверял
 
-Формат: по одному факту на строку, без нумерации.
-Каждый факт должен быть самодостаточным предложением (не одно слово).
-Примеры хороших фактов: "Пользователя зовут Александр", "Работает программистом", "Предпочитает краткие ответы"
-Если важных фактов нет — верни пустую строку.
-Пиши только на русском языке.
+Верни JSON-массив (может быть пустой []):
+[{{"fact": "краткий факт", "tag": "тег", "importance": 0.0-1.0}}]
+
+Теги: preference, skill, fact, project, context
+Важность: 0.9-1.0 = имя/профессия, 0.7-0.8 = навыки/проекты, 0.5-0.6 = предпочтения, <0.5 = не сохранять
+
+Примеры:
+[{{"fact": "Зовут Александр", "tag": "fact", "importance": 1.0}},
+ {{"fact": "Senior Python разработчик в Яндексе", "tag": "skill", "importance": 0.9}},
+ {{"fact": "Предпочитает краткие ответы", "tag": "preference", "importance": 0.6}}]
+
+Если важных фактов НЕТ — верни []
 
 Диалог:
 {dialogue}"""
@@ -226,13 +229,50 @@ async def generate_image(prompt: str, *, model: str = "qwen-image-lightning") ->
     raise RuntimeError(f"Модель {model} не поддерживает генерацию изображений через доступные API endpoints")
 
 
-async def extract_facts(messages: list[dict]) -> list[str]:
+import json as _json
+import re as _re_facts
+
+
+# Pre-filter: skip LLM extraction for trivial messages
+_TRIVIAL_MSG_PATTERNS = [
+    _re_facts.compile(r"^(привет|здравствуй|hi|hello|hey|добр\w+ (утро|день|вечер))[\s!.?]*$", _re_facts.I),
+    _re_facts.compile(r"^(спасибо|thanks|thank you|пока|до свидания|bye)[\s!.?]*$", _re_facts.I),
+    _re_facts.compile(r"^\d[\d\s+\-*/=.,()]+$"),  # math expressions
+    _re_facts.compile(r"^(да|нет|ок|ok|ладно|хорошо|понятно|ясно|угу)[\s!.?]*$", _re_facts.I),
+]
+
+
+def _is_trivial_message(text: str) -> bool:
+    """Check if user message is too trivial to extract facts from."""
+    t = text.strip()
+    if len(t) < 10:
+        return True
+    for pat in _TRIVIAL_MSG_PATTERNS:
+        if pat.match(t):
+            return True
+    return False
+
+
+async def extract_facts(messages: list[dict]) -> list[dict]:
     """
-    Call gpt-oss-20b to extract memorable facts from a conversation.
-    Returns a (possibly empty) list of fact strings.
+    Extract memorable facts from a conversation via LLM.
+    Returns list of dicts: [{"fact": str, "tag": str, "importance": float}, ...]
+    Pre-filters trivial messages to avoid wasting LLM calls.
     """
+    # Find last user message for pre-filter
+    last_user = ""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            last_user = content if isinstance(content, str) else str(content)
+            break
+
+    if _is_trivial_message(last_user):
+        logger.debug("extract_facts: skipping trivial message: %s", last_user[:40])
+        return []
+
     dialogue = "\n".join(
-        f"{m['role'].upper()}: {m.get('content', '')}" for m in messages
+        f"{m['role'].upper()}: {m.get('content', '')}" for m in messages[-6:]  # last 3 turns max
     )
     response = await chat_complete(
         model="gpt-oss-20b",
@@ -240,7 +280,57 @@ async def extract_facts(messages: list[dict]) -> list[str]:
             {"role": "user", "content": _EXTRACT_FACTS_PROMPT.format(dialogue=dialogue)}
         ],
         temperature=0.0,
-        max_tokens=512,
+        max_tokens=500,
     )
-    raw = response.choices[0].message.content or ""
-    return [line.strip() for line in raw.splitlines() if line.strip()]
+    msg = response.choices[0].message
+    # Only use content (not reasoning_content) — reasoning models put chain-of-thought
+    # in reasoning_content which is NOT the actual answer and must not be parsed as facts.
+    raw = (msg.content or "").strip()
+
+    # If content is empty, try to extract JSON from reasoning_content as last resort
+    if not raw:
+        rc = getattr(msg, "reasoning_content", None) or ""
+        # Only use reasoning_content if it actually contains a JSON array
+        if "[" in rc and "]" in rc:
+            raw = rc.strip()
+        else:
+            logger.debug("extract_facts: model returned empty content, skipping")
+            return []
+
+    # Parse JSON from response (handle markdown fences)
+    text = raw
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+
+    # Find JSON array in the text
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1:
+        # No JSON array found — return empty (do NOT fall back to line-by-line parsing
+        # as that captures reasoning text as fake "facts")
+        logger.debug("extract_facts: no JSON array found in response: %s", text[:100])
+        return []
+
+    try:
+        facts = _json.loads(text[start:end + 1])
+    except _json.JSONDecodeError:
+        logger.warning("extract_facts: failed to parse JSON: %s", text[:200])
+        return []
+
+    # Validate and filter
+    result = []
+    for item in facts:
+        if not isinstance(item, dict):
+            continue
+        fact = item.get("fact", "").strip()
+        tag = item.get("tag", "fact")
+        importance = float(item.get("importance", 0.5))
+        if not fact or len(fact) < 5 or importance < 0.5:
+            continue
+        if tag not in ("preference", "skill", "fact", "project", "context"):
+            tag = "fact"
+        result.append({"fact": fact, "tag": tag, "importance": importance})
+
+    return result

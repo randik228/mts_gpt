@@ -23,10 +23,14 @@ services:
       - ENABLE_OLLAMA_API=false
       - OPENAI_API_BASE_URL=http://proxy:8000/v1
       - OPENAI_API_KEY=${MWS_API_KEY}
-      - WEBUI_AUTH=false
+      - WEBUI_AUTH=true
       - HF_HUB_DISABLE_XET=1
       - ENABLE_WEB_SEARCH=true
       - WEB_SEARCH_ENGINE=duckduckgo
+      - AUDIO_STT_ENGINE=openai
+      - AUDIO_STT_OPENAI_API_BASE_URL=http://proxy:8000/v1
+      - AUDIO_STT_OPENAI_API_KEY=${MWS_API_KEY}
+      - AUDIO_STT_MODEL=whisper-turbo-local
     volumes:
       - webui_data:/app/backend/data
       - ./openwebui-custom.css:/app/custom-theme.css:ro
