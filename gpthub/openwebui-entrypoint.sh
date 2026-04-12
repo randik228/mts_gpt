@@ -109,14 +109,16 @@ fi
 
 # Register auto-search filter in background (waits for OpenWebUI to be ready)
 (
-  FILTER_CODE='"""
+  # Write filter code to temp file to avoid shell escaping issues
+  cat > /tmp/gpthub_filter.py << 'FILTEREOF'
+"""
 title: Auto Web Search
 description: Automatically enables OpenWebUI native web search when the query needs current information
 """
 from typing import Optional
 
 
-class Function:
+class Filter:
     def inlet(self, body: dict, __user__: Optional[dict] = None) -> dict:
         messages = body.get("messages", [])
         if not messages:
@@ -152,13 +154,14 @@ class Function:
                 body["features"] = {}
             body["features"]["web_search"] = True
         return body
-'
+FILTEREOF
+
   for i in $(seq 1 40); do
     sleep 5
     python3 -c "
 import json, urllib.request, sys, os
 
-code = os.environ.get('FILTER_CODE', '')
+code = open('/tmp/gpthub_filter.py', encoding='utf-8').read()
 
 # On fresh installs WEBUI_AUTH=false may not have created admin yet — try signup first
 try:
@@ -223,7 +226,7 @@ try:
 except: pass
 
 print('REGISTERED')
-" FILTER_CODE="$FILTER_CODE" 2>/dev/null && echo "[GPTHub] Auto-search filter registered." && break
+" 2>/dev/null && echo "[GPTHub] Auto-search filter registered." && break
   done
 
   # Register virtual model display names (emoji + description)

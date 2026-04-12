@@ -5,7 +5,7 @@ description: Automatically enables OpenWebUI native web search when the query ne
 from typing import Optional
 
 
-class Function:
+class Filter:
     def inlet(self, body: dict, __user__: Optional[dict] = None) -> dict:
         messages = body.get("messages", [])
         if not messages:
