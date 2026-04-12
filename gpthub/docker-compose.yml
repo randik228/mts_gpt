@@ -31,6 +31,7 @@ services:
       - webui_data:/app/backend/data
       - ./openwebui-custom.css:/app/custom-theme.css:ro
       - ./openwebui-entrypoint.sh:/app/gpthub-entrypoint.sh:ro
+      - ./webui-seed.db:/app/webui-seed.db:ro
     entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /app/gpthub-entrypoint.sh | bash"]
     depends_on:
       proxy:

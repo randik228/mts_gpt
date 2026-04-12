@@ -3,6 +3,42 @@
 # CSS injection is optional — failures here must never prevent OpenWebUI from starting
 set +e
 
+# ── Seed database on first boot ───────────────────────────────────────────────
+# On a fresh install the webui_data volume is empty. Copy the pre-configured
+# seed DB (models + filter + config, no user data) so OpenWebUI starts with
+# the correct model names, auto-search filter, and UI settings immediately.
+SEED="/app/webui-seed.db"
+DB="/app/backend/data/webui.db"
+if [ -f "$SEED" ]; then
+  if [ ! -f "$DB" ]; then
+    echo "[GPTHub] Fresh install detected — seeding webui.db from webui-seed.db"
+    cp "$SEED" "$DB"
+  else
+    # DB exists but check if models table is empty (someone wiped it)
+    MODEL_COUNT=$(python3 -c "import sqlite3; c=sqlite3.connect('$DB'); print(c.execute('SELECT COUNT(*) FROM model').fetchone()[0])" 2>/dev/null || echo "0")
+    if [ "$MODEL_COUNT" = "0" ]; then
+      echo "[GPTHub] Models table empty — re-seeding model and function tables"
+      python3 -c "
+import sqlite3, shutil
+src = '$SEED'
+dst = '$DB'
+seed = sqlite3.connect(src)
+live = sqlite3.connect(dst)
+# Copy model rows
+live.execute('DELETE FROM model')
+for row in seed.execute('SELECT * FROM model').fetchall():
+    live.execute('INSERT OR REPLACE INTO model VALUES (' + ','.join(['?']*len(row)) + ')', row)
+# Copy function rows
+live.execute('DELETE FROM function')
+for row in seed.execute('SELECT * FROM function').fetchall():
+    live.execute('INSERT OR REPLACE INTO function VALUES (' + ','.join(['?']*len(row)) + ')', row)
+live.commit()
+print('re-seeded models and functions')
+" 2>/dev/null
+    fi
+  fi
+fi
+
 CSS_FILE="/app/custom-theme.css"
 INDEX="/app/build/index.html"
 

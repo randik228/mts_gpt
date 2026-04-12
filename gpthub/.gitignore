@@ -5,6 +5,7 @@
 
 # Data
 *.db
+!webui-seed.db
 *.index
 data/
 
