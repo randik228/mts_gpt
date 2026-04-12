@@ -116,7 +116,7 @@ description: Automatically enables OpenWebUI native web search when the query ne
 from typing import Optional
 
 
-class Filter:
+class Function:
     def inlet(self, body: dict, __user__: Optional[dict] = None) -> dict:
         messages = body.get("messages", [])
         if not messages:
@@ -184,26 +184,34 @@ except Exception:
 
 headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
-# Check if filter exists and is correct
+# Check if filter exists with correct code
+filter_exists = False
+needs_update = True
 try:
     req2 = urllib.request.Request('http://localhost:8080/api/v1/functions/id/auto_web_search', headers=headers)
     resp2 = urllib.request.urlopen(req2, timeout=3)
     fdata = json.loads(resp2.read())
-    if fdata.get('is_active') and fdata.get('is_global'):
+    filter_exists = True
+    # Check if code matches current version
+    if fdata.get('content','').strip() == code.strip() and fdata.get('is_active') and fdata.get('is_global'):
         print('OK')
-        sys.exit(0)
+        needs_update = False
 except:
     pass
 
-# Create or update filter
-payload = json.dumps({'id':'auto_web_search','name':'Auto Web Search','content':code,'meta':{'description':'Auto web search filter','manifest':{}},'is_active':True,'is_global':True}).encode()
-try:
-    req3 = urllib.request.Request('http://localhost:8080/api/v1/functions/create', data=payload, headers=headers, method='POST')
-    urllib.request.urlopen(req3, timeout=5)
-except:
-    req3b = urllib.request.Request('http://localhost:8080/api/v1/functions/id/auto_web_search/update', data=payload, headers=headers, method='POST')
-    try: urllib.request.urlopen(req3b, timeout=5)
-    except: pass
+if needs_update:
+    # Create or update filter
+    payload = json.dumps({'id':'auto_web_search','name':'Auto Web Search','content':code,'meta':{'description':'Auto web search filter','manifest':{}},'is_active':True,'is_global':True}).encode()
+    if filter_exists:
+        try:
+            req3b = urllib.request.Request('http://localhost:8080/api/v1/functions/id/auto_web_search/update', data=payload, headers=headers, method='POST')
+            urllib.request.urlopen(req3b, timeout=5)
+        except: pass
+    else:
+        try:
+            req3 = urllib.request.Request('http://localhost:8080/api/v1/functions/create', data=payload, headers=headers, method='POST')
+            urllib.request.urlopen(req3, timeout=5)
+        except: pass
 
 # Toggle active if needed
 try:
