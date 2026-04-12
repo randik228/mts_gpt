@@ -89,6 +89,49 @@ js = '''<script id=\"gpthub-vars\">(function(){
     });
   }
   new MutationObserver(hideCI).observe(document.documentElement,{childList:true,subtree:true});
+
+  // ── Quick Login Buttons ──────────────────────────────────────────────
+  var _QL = [
+    {l:'Admin', e:String.fromCodePoint(0x1f6e1,0xfe0f), m:'admin@localhost', p:'admin', d:String.fromCharCode(1040,1076,1084,1080,1085,1080,1089,1090,1088,1072,1090,1086,1088)},
+    {l:'User',  e:String.fromCodePoint(0x1f464),         m:'user@localhost',  p:'user',  d:String.fromCharCode(1055,1086,1083,1100,1079,1086,1074,1072,1090,1077,1083,1100)}
+  ];
+  function _qlInject() {
+    if (document.getElementById('gpthub-ql')) return;
+    var pi = document.querySelector('input[type=password]');
+    if (!pi) return;
+    var fm = pi.closest('form');
+    if (!fm) return;
+    var w = document.createElement('div');
+    w.id = 'gpthub-ql';
+    w.style.cssText = 'margin-top:16px;padding:16px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);';
+    var tt = document.createElement('div');
+    tt.style.cssText = 'font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;text-align:center;';
+    tt.textContent = String.fromCharCode(1041,1099,1089,1090,1088,1099,1081,32,1074,1093,1086,1076);
+    w.appendChild(tt);
+    var rw = document.createElement('div');
+    rw.style.cssText = 'display:flex;gap:8px;';
+    _QL.forEach(function(a){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.style.cssText = 'flex:1;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#eee;cursor:pointer;font-size:14px;transition:all .2s;display:flex;flex-direction:column;align-items:center;gap:4px;';
+      b.innerHTML = '<span style=\"font-size:22px\">'+a.e+'</span><span style=\"font-weight:600\">'+a.l+'</span><span style=\"font-size:11px;color:#888\">'+a.d+'</span>';
+      b.onmouseenter = function(){ b.style.background='rgba(227,6,17,.15)'; b.style.borderColor='rgba(227,6,17,.4)'; };
+      b.onmouseleave = function(){ b.style.background='rgba(255,255,255,.06)'; b.style.borderColor='rgba(255,255,255,.12)'; };
+      b.onclick = function(ev){
+        ev.preventDefault(); b.style.opacity='0.6';
+        fetch('/api/v1/auths/signin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:a.m,password:a.p})})
+        .then(function(r){return r.json()}).then(function(d){
+          if(d.token){localStorage.setItem('token',d.token);window.location.href='/';}
+          else{b.textContent='Error';setTimeout(function(){location.reload()},1500);}
+        }).catch(function(){b.textContent='Error';setTimeout(function(){location.reload()},1500);});
+      };
+      rw.appendChild(b);
+    });
+    w.appendChild(rw);
+    fm.parentNode.insertBefore(w, fm.nextSibling);
+  }
+  new MutationObserver(_qlInject).observe(document.documentElement,{childList:true,subtree:true});
+  document.addEventListener('DOMContentLoaded', _qlInject);
 })();</script>
 '''
 
@@ -167,16 +210,18 @@ import json, urllib.request, sys, os
 
 code = open('/tmp/gpthub_filter.py', encoding='utf-8').read()
 
-# On fresh installs WEBUI_AUTH=false may not have created admin yet — try signup first
-try:
-    req_signup = urllib.request.Request(
-        'http://localhost:8080/api/v1/auths/signup',
-        data=json.dumps({'name':'Admin','email':'admin@localhost','password':'admin','profile_image_url':''}).encode(),
-        headers={'Content-Type':'application/json'}
-    )
-    urllib.request.urlopen(req_signup, timeout=3)
-except Exception:
-    pass  # Already exists — that is fine
+# On fresh installs — create default accounts (admin + user)
+# First try signup without auth; if signup is disabled (403), use admin token to create via admin API
+for _name, _email, _pwd in [('Admin', 'admin@localhost', 'admin'), ('User', 'user@localhost', 'user')]:
+    try:
+        _req = urllib.request.Request(
+            'http://localhost:8080/api/v1/auths/signup',
+            data=json.dumps({'name':_name,'email':_email,'password':_pwd,'profile_image_url':''}).encode(),
+            headers={'Content-Type':'application/json'}
+        )
+        urllib.request.urlopen(_req, timeout=3)
+    except Exception:
+        pass  # Already exists or signup disabled — will retry via admin API below
 
 try:
     req = urllib.request.Request(
@@ -190,6 +235,23 @@ except Exception:
     sys.exit(1)
 
 headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+
+# Create user account via admin API (works even if signup is disabled)
+try:
+    _chk = urllib.request.Request('http://localhost:8080/api/v1/auths/signin',
+        data=json.dumps({'email':'user@localhost','password':'user'}).encode(),
+        headers={'Content-Type':'application/json'})
+    urllib.request.urlopen(_chk, timeout=3)
+except Exception:
+    # User doesn't exist — create via admin add endpoint
+    try:
+        _add = urllib.request.Request('http://localhost:8080/api/v1/auths/add',
+            data=json.dumps({'name':'User','email':'user@localhost','password':'user','role':'user','profile_image_url':''}).encode(),
+            headers=headers, method='POST')
+        urllib.request.urlopen(_add, timeout=3)
+        print('created user@localhost')
+    except Exception as e:
+        print('user create failed:', e)
 
 # Check if filter exists with correct code
 filter_exists = False
