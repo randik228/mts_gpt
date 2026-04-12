@@ -165,7 +165,10 @@ async def chat_completions(request: Request):
 
     # --- Image generation special handling ---
     if real_model in ("qwen-image-lightning", "qwen-image"):
-        return await _handle_image_generation(req, messages_raw, real_model, routing_method, routing_reason, user_id)
+        return await _handle_image_generation(
+            req, messages_raw, real_model, routing_method, routing_reason, user_id,
+            stream=req.stream,
+        )
 
     # --- Reasoning system prompt inject ---
     messages_final = _inject_reasoning_prompt(real_model, messages_with_mem)
@@ -619,10 +622,14 @@ async def _handle_image_generation(
     routing_method: str,
     routing_reason: str,
     user_id: str,
-) -> JSONResponse:
+    *,
+    stream: bool = False,
+) -> JSONResponse | StreamingResponse:
     """
     Handle image generation requests.
     Tries MWS images endpoint; if unsupported, returns clear error.
+    Supports both streaming and non-streaming responses so OpenWebUI
+    doesn't hang when it sends stream=true.
     """
     # Extract the image prompt from user's last message
     prompt = ""
@@ -636,11 +643,35 @@ async def _handle_image_generation(
         result = await mws_client.generate_image(prompt, model=model)
     except Exception as e:
         logger.warning("Image generation failed: %s", e)
-        # Return error as valid chat completion response
         result = (
             f"⚠️ Генерация изображений временно недоступна.\n\n"
             f"Модель `{model}` не поддерживает генерацию через текущий API.\n"
             f"Ошибка: {e}"
+        )
+
+    hdrs = {
+        "X-GPTHub-Model": model,
+        "X-GPTHub-Requested-Model": req.model,
+        "X-GPTHub-Routing-Method": routing_method,
+        "X-GPTHub-Routing-Reason": routing_reason,
+    }
+
+    if stream:
+        # OpenWebUI sent stream=true — respond with a proper SSE stream
+        async def _img_stream():
+            chunk = _make_delta_chunk(model, "img", result)
+            chunk["choices"][0]["finish_reason"] = None
+            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()
+            # Close chunk
+            done = _make_delta_chunk(model, "img-done", "")
+            done["choices"][0]["finish_reason"] = "stop"
+            yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n".encode()
+            yield b"data: [DONE]\n\n"
+
+        return StreamingResponse(
+            _img_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", **hdrs},
         )
 
     return JSONResponse(content={
@@ -653,12 +684,7 @@ async def _handle_image_generation(
             "finish_reason": "stop",
         }],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-    }, headers={
-        "X-GPTHub-Model": model,
-        "X-GPTHub-Requested-Model": req.model,
-        "X-GPTHub-Routing-Method": routing_method,
-        "X-GPTHub-Routing-Reason": routing_reason,
-    })
+    }, headers=hdrs)
 
 
 # ---------------------------------------------------------------------------

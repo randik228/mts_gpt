@@ -123,6 +123,18 @@ class Filter:
 import json, urllib.request, sys, os
 
 code = os.environ.get('FILTER_CODE', '')
+
+# On fresh installs WEBUI_AUTH=false may not have created admin yet — try signup first
+try:
+    req_signup = urllib.request.Request(
+        'http://localhost:8080/api/v1/auths/signup',
+        data=json.dumps({'name':'Admin','email':'admin@localhost','password':'admin','profile_image_url':''}).encode(),
+        headers={'Content-Type':'application/json'}
+    )
+    urllib.request.urlopen(req_signup, timeout=3)
+except Exception:
+    pass  # Already exists — that is fine
+
 try:
     req = urllib.request.Request(
         'http://localhost:8080/api/v1/auths/signin',
