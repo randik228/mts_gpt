@@ -124,6 +124,22 @@ async def delete_all_memories(
     return {"status": "deleted", "count": count}
 
 
+@router.delete("/by-chat/{chat_id}")
+async def delete_memories_by_chat(chat_id: str):
+    """Delete all memories associated with a specific chat_id."""
+    manager = await get_manager()
+    count = await manager.delete_by_chat(chat_id)
+    return {"status": "deleted", "count": count}
+
+
+@router.get("/by-chat/{chat_id}")
+async def get_memories_by_chat(chat_id: str):
+    """Get all memories associated with a specific chat_id."""
+    manager = await get_manager()
+    memories = await manager.list_by_chat(chat_id)
+    return {"memories": memories}
+
+
 @router.delete("/{memory_id}")
 async def delete_memory(memory_id: str):
     manager = await get_manager()

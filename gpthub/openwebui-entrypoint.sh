@@ -101,6 +101,7 @@ js = '''<script id=\"gpthub-vars\">(function(){
   ];
   function _qlInject() {
     if (document.getElementById('gpthub-ql')) return;
+    if (window.location.pathname.indexOf('/auth') === -1) return;
     var pi = document.querySelector('input[type=password]');
     if (!pi) return;
     var fm = pi.closest('form');
@@ -136,6 +137,33 @@ js = '''<script id=\"gpthub-vars\">(function(){
   }
   new MutationObserver(_qlInject).observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('DOMContentLoaded', _qlInject);
+
+  // ── Memory cleanup on chat deletion ─────────────────────────────────
+  // Intercept fetch to catch DELETE /api/v1/chats/{id} and clean up associated memories
+  var _origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    var result = _origFetch.apply(this, arguments);
+    try {
+      var method = (opts && opts.method || 'GET').toUpperCase();
+      var urlStr = (typeof url === 'string') ? url : (url && url.url) || '';
+      if (method === 'DELETE') {
+        // Single chat deletion: /api/v1/chats/{uuid}
+        var m = urlStr.match(/\\/api\\/v1\\/chats\\/([0-9a-f-]{36})$/);
+        if (m) {
+          var chatId = m[1];
+          result.then(function(resp) {
+            if (resp.ok) {
+              _origFetch('http://localhost:8000/api/memory/by-chat/' + chatId, {method:'DELETE'})
+                .then(function(r){return r.json()})
+                .then(function(d){console.log('[GPTHub] Cleaned',d.deleted||0,'memories for chat',chatId)})
+                .catch(function(){});
+            }
+          }).catch(function(){});
+        }
+      }
+    } catch(e) {}
+    return result;
+  };
 })();</script>
 '''
 
@@ -220,7 +248,7 @@ for _name, _email, _pwd in [('Admin', 'admin@localhost', 'admin'), ('User', 'use
     try:
         _req = urllib.request.Request(
             'http://localhost:8080/api/v1/auths/signup',
-            data=json.dumps({'name':_name,'email':_email,'password':_pwd,'profile_image_url':''}).encode(),
+            data=json.dumps({'name':_name,'email':_email,'password':_pwd,'profile_image_url':'/static/favicon.png'}).encode(),
             headers={'Content-Type':'application/json'}
         )
         urllib.request.urlopen(_req, timeout=3)
@@ -250,7 +278,7 @@ except Exception:
     # User doesn't exist — create via admin add endpoint
     try:
         _add = urllib.request.Request('http://localhost:8080/api/v1/auths/add',
-            data=json.dumps({'name':'User','email':'user@localhost','password':'user','role':'user','profile_image_url':''}).encode(),
+            data=json.dumps({'name':'User','email':'user@localhost','password':'user','role':'user','profile_image_url':'/static/favicon.png'}).encode(),
             headers=headers, method='POST')
         urllib.request.urlopen(_add, timeout=3)
         print('created user@localhost')

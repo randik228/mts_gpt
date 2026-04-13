@@ -122,20 +122,24 @@ async def chat_completions(request: Request):
 
     # --- Resolve user_id: prefer req.user, fall back to OpenWebUI metadata ---
     _resolved_user = req.user
+    meta = body.get("metadata") or {}
     if not _resolved_user:
         # OpenWebUI sends metadata with user info in newer versions
-        meta = body.get("metadata") or {}
-        _resolved_user = (
-            meta.get("user_email")
-            or meta.get("user", {}).get("email") if isinstance(meta.get("user"), dict) else None
-        ) or meta.get("user_id")
+        # Try multiple fields in priority order
+        user_obj = meta.get("user")
+        if isinstance(user_obj, dict):
+            _resolved_user = user_obj.get("email") or user_obj.get("name") or user_obj.get("id")
+        if not _resolved_user:
+            _resolved_user = meta.get("user_email") or meta.get("user_id")
     if not _resolved_user:
-        # Try Authorization header — OpenWebUI sends Bearer <jwt>
-        # but we can't decode without key; use chat_id as fallback grouping
-        _resolved_user = (body.get("metadata") or {}).get("chat_id")
+        _resolved_user = meta.get("chat_id")
+    if not _resolved_user:
+        _resolved_user = "default"
     # Store resolved user back on req for downstream use
-    if _resolved_user:
-        req.user = _resolved_user
+    req.user = _resolved_user
+    # Extract chat_id for memory association
+    _chat_id = meta.get("chat_id")
+    logger.debug("Resolved user=%s chat_id=%s from metadata keys=%s", _resolved_user, _chat_id, list(meta.keys())[:10])
 
     # Resolve virtual model → real model via Smart Router
     messages_raw = [m.model_dump(exclude_none=True) for m in req.messages]
@@ -183,9 +187,10 @@ async def chat_completions(request: Request):
 
     # --- Memory inject (before request) ---
     user_id = req.user or "default"
+    chat_id = _chat_id  # from metadata resolution above
     # Skip memory for OpenWebUI internal system requests (title/tag generation etc.)
     # Also treat requests without a user as system requests (OpenWebUI title/tag gen)
-    _is_system_request = _detect_system_request(messages_raw) or not req.user
+    _is_system_request = _detect_system_request(messages_raw) or user_id == "default"
     messages_with_mem = (
         messages_raw if _is_system_request
         else await _inject_memories(messages_raw, user_id)
@@ -221,7 +226,8 @@ async def chat_completions(request: Request):
                         routing_method=routing_method, routing_reason=routing_reason,
                         requested=req.model, t0=t0,
                         suppress_reasoning=suppress_reasoning,
-                        skip_memory=_is_system_request),
+                        skip_memory=_is_system_request,
+                        chat_id=chat_id),
             media_type="text/event-stream",
             headers={
                 "X-GPTHub-Model": real_model,
@@ -293,7 +299,7 @@ async def chat_completions(request: Request):
 
     # --- Analytics + Memory (fire-and-forget) ---
     if not _is_system_request:
-        asyncio.create_task(_memorize(user_id, messages_raw, assistant_text))
+        asyncio.create_task(_memorize(user_id, messages_raw, assistant_text, chat_id))
     asyncio.create_task(_record_analytics(
         user_id=user_id, requested=req.model, routed_to=real_model,
         method=routing_method, reason=routing_reason, latency_ms=latency_ms,
@@ -326,6 +332,7 @@ async def _stream_sse(
     t0: float = 0.0,
     suppress_reasoning: bool = False,
     skip_memory: bool = False,
+    chat_id: str | None = None,
 ) -> AsyncIterator[bytes]:
     """Yield SSE bytes from MWS streaming response."""
     # NOTE: do NOT send a routing metadata chunk — OpenWebUI cannot parse
@@ -429,7 +436,7 @@ async def _stream_sse(
     ))
     if collected_raw and not skip_memory:
         assistant_text = "".join(collected_raw)
-        asyncio.create_task(_memorize(user_id, messages, assistant_text))
+        asyncio.create_task(_memorize(user_id, messages, assistant_text, chat_id))
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +525,7 @@ async def _inject_memories(messages: list[dict], user_id: str) -> list[dict]:
     try:
         manager = await get_manager()
         query = _extract_text(messages)
-        memories = await manager.search_memories(user_id, query, top_k=5, min_score=0.35)
+        memories = await manager.search_memories(user_id, query, top_k=5, min_score=0.30)
     except Exception:
         logger.warning("Memory inject failed, continuing without memories", exc_info=True)
         return messages
@@ -543,13 +550,13 @@ async def _inject_memories(messages: list[dict], user_id: str) -> list[dict]:
     return result
 
 
-async def _memorize(user_id: str, messages: list[dict], assistant_reply: str) -> None:
+async def _memorize(user_id: str, messages: list[dict], assistant_reply: str, source_chat: str | None = None) -> None:
     """Fire-and-forget: extract facts from the completed exchange and save them."""
-    logger.info("_memorize START user=%s msgs=%d reply_len=%d", user_id, len(messages), len(assistant_reply))
+    logger.info("_memorize START user=%s chat=%s msgs=%d reply_len=%d", user_id, source_chat, len(messages), len(assistant_reply))
     try:
         manager = await get_manager()
         full_exchange = messages + [{"role": "assistant", "content": assistant_reply}]
-        saved = await manager.extract_and_save(user_id, full_exchange)
+        saved = await manager.extract_and_save(user_id, full_exchange, source_chat=source_chat)
         logger.info("_memorize DONE user=%s saved=%d", user_id, len(saved))
     except Exception:
         logger.warning("Background memorise failed for user=%s", user_id, exc_info=True)

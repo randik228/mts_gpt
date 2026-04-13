@@ -324,18 +324,18 @@ class MemoryManager:
         logger.info("extract_and_save: saved %d/%d for user=%s", len(saved), len(fact_items), user_id)
         return saved
 
-    async def _is_duplicate(self, user_id: str, fact: str, threshold: float = 0.85) -> bool:
+    async def _is_duplicate(self, user_id: str, fact: str, threshold: float = 0.78) -> bool:
         """Return True if a very similar memory already exists for this user.
         Uses both semantic similarity (embedding cosine ≥ threshold) and
         keyword overlap to catch rephrased facts like 'Зовут Олег' vs 'Имя — Олег'.
         """
         if self._index.ntotal == 0:
             return False
-        # 1. Semantic similarity check (lowered from 0.92 to 0.85)
-        existing = await self.search_memories(user_id, fact, top_k=3, min_score=threshold)
+        # 1. Semantic similarity check (lowered to 0.78 to catch paraphrases)
+        existing = await self.search_memories(user_id, fact, top_k=5, min_score=threshold)
         if existing:
             logger.debug("_is_duplicate: semantic match for '%s': %s",
-                         fact[:50], [(m["content"][:40], m["score"]) for m in existing])
+                         fact[:50], [m[:40] for m in existing])
             return True
 
         # 2. Keyword overlap check — catch "Имя: Олег" vs "Зовут Олег"
@@ -359,7 +359,7 @@ class MemoryManager:
             # Jaccard similarity on tokens
             overlap = len(fact_tokens & existing_tokens)
             union = len(fact_tokens | existing_tokens)
-            if union > 0 and overlap / union >= 0.6:
+            if union > 0 and overlap / union >= 0.5:
                 logger.debug("_is_duplicate: keyword overlap for '%s' ≈ '%s' (%.2f)",
                              fact[:40], existing_text[:40], overlap / union)
                 return True
@@ -424,6 +424,29 @@ class MemoryManager:
             logger.info("Deleted memory %s (SQLite + faiss_map)", memory_id)
 
         return deleted
+
+    async def list_by_chat(self, chat_id: str) -> list[dict]:
+        """Return all memories associated with a specific chat_id."""
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM memories WHERE source_chat = ? ORDER BY created_at DESC",
+                (chat_id,),
+            )
+            rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    async def delete_by_chat(self, chat_id: str) -> int:
+        """Delete all memories associated with a specific chat_id."""
+        memories = await self.list_by_chat(chat_id)
+        count = 0
+        for m in memories:
+            await self.delete_memory(m["id"])
+            count += 1
+        if count:
+            await self._rebuild_faiss()
+            logger.info("Deleted %d memories for chat_id=%s", count, chat_id)
+        return count
 
     async def purge_all(self, user_id: str, *, scope: str | None = None) -> int:
         """

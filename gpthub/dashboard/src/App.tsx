@@ -3,6 +3,7 @@ import TaskChainBuilder from "./pages/TaskChainBuilder";
 import MemoryViewer from "./pages/MemoryViewer";
 import RoutingAnalytics from "./pages/RoutingAnalytics";
 import ModelCatalog from "./pages/ModelCatalog";
+import Settings from "./pages/Settings";
 import "./app.css";
 
 export default function App() {
@@ -28,6 +29,9 @@ export default function App() {
           <NavLink to="/models" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
             <i className="nav-icon">🤖</i> Models
           </NavLink>
+          <NavLink to="/settings" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+            <i className="nav-icon">&#9881;</i> Settings
+          </NavLink>
         </nav>
 
         <div className="header-right">
@@ -42,6 +46,7 @@ export default function App() {
           <Route path="/memory" element={<MemoryViewer />} />
           <Route path="/analytics" element={<RoutingAnalytics />} />
           <Route path="/models" element={<ModelCatalog />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
     </BrowserRouter>

@@ -117,20 +117,23 @@ def _pick_from_pool(category: str, text: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 _KEYWORD_RULES: list[tuple[re.Pattern, str, str]] = [
-    # Image generation — STRICT patterns only (verb + visual noun together)
-    # "нарисуй кота" → image, but "сгенерируй отчёт" → NOT image
+    # Image generation — verb + visual noun (allow up to 3 words between)
+    # "сгенерируй изображение" → image, "создай красивую иллюстрацию" → image
+    # "сгенерируй отчёт" → NOT image
     (re.compile(
-        r"\b(нарисуй|draw|paint)\b",
+        r"\b(сгенерируй|создай|generate|create)\s+(\S+\s+){0,3}(изображени|картинк|фото|рисунок|иллюстраци|image|picture|photo|illustration)\w*\b",
         re.I,
     ), "image", "image generation request"),
+    # "нарисуй" — keyword match, BUT always verified by LLM to catch metaphors
     (re.compile(
-        r"\b(сгенерируй|создай|generate|create)\s+(изображени|картинк|фото|рисунок|иллюстраци|image|picture|photo|illustration)\b",
+        r"\b(нарисуй|draw\b|paint\b)",
         re.I,
     ), "image", "image generation request"),
+    # Image modification — explicit reference to image object
     (re.compile(
-        r"\bimagine\b",
+        r"\b(измени|поменяй|перерисуй|перегенерируй)\s+(картинк|изображени|рисунок|фото)\w*\b",
         re.I,
-    ), "image", "image generation request"),
+    ), "image", "image modification request"),
 
     # Web search
     (re.compile(
@@ -204,12 +207,25 @@ async def _llm_classify_intent(text: str) -> tuple[str | None, str | None]:
             model="gpt-oss-20b",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
-            max_tokens=200,
+            max_tokens=500,  # reasoning models need token budget for CoT + answer
         )
         msg = completion.choices[0].message
-        raw_answer = msg.content or getattr(msg, "reasoning_content", None) or ""
+        content = (msg.content or "").strip()
+        reasoning = getattr(msg, "reasoning_content", None) or ""
+
+        # Reasoning models may put answer at end of reasoning_content
+        if not content and reasoning:
+            import re as _re
+            # Find category keywords in reasoning
+            _cats = _re.findall(
+                r'\b(PRESENTATION|IMAGE|CODE|SEARCH|REASONING|GENERAL)\b',
+                reasoning,
+            )
+            content = _cats[-1] if _cats else ""
+
+        raw_answer = content
         answer = raw_answer.strip().upper()
-        logger.info("LLM intent classifier raw='%s' for: %s", raw_answer.strip()[:100], text[:80])
+        logger.info("LLM intent classifier raw='%s' for: %s", raw_answer[:100], text[:80])
 
         for intent, category in _INTENT_TO_CATEGORY.items():
             if intent in answer:
@@ -233,31 +249,59 @@ async def _llm_classify_intent(text: str) -> tuple[str | None, str | None]:
 
 _IMAGE_VERIFY_PROMPT = (
     "Пользователь написал сообщение. Нужно ли СГЕНЕРИРОВАТЬ ИЗОБРАЖЕНИЕ/КАРТИНКУ для ответа?\n"
-    "Ответь ТОЛЬКО 'ДА' или 'НЕТ'.\n\n"
+    "Ответь СТРОГО ОДНИМ СЛОВОМ: ДА или НЕТ.\n\n"
     "Правила:\n"
-    "- ДА — только если пользователь явно просит НАРИСОВАТЬ, СОЗДАТЬ КАРТИНКУ, СГЕНЕРИРОВАТЬ ИЗОБРАЖЕНИЕ\n"
-    "- НЕТ — если просит сгенерировать текст, код, отчёт, таблицу, презентацию, или задаёт вопрос\n"
+    "- ДА — ТОЛЬКО если пользователь явно просит НАРИСОВАТЬ, СОЗДАТЬ КАРТИНКУ, СГЕНЕРИРОВАТЬ ИЗОБРАЖЕНИЕ\n"
+    "- НЕТ — если просит сгенерировать текст, код, отчёт, таблицу, список, презентацию\n"
     "- НЕТ — если говорит об изображениях абстрактно (обсуждает, спрашивает про них)\n"
-    "- НЕТ — если просит изменить/описать уже загруженное изображение\n\n"
+    "- НЕТ — если просит изменить/описать уже загруженное изображение\n"
+    "- НЕТ — если просит что-то сложное/подробное (анализ, эссе, рассуждение)\n"
+    "- НЕТ — если слово 'нарисуй' используется метафорически ('нарисуй картину будущего')\n\n"
+    "Примеры:\n"
+    "- 'нарисуй кота в космосе' → ДА\n"
+    "- 'сгенерируй изображение заката' → ДА\n"
+    "- 'сгенерируй список задач' → НЕТ\n"
+    "- 'нарисуй мне картину будущего России' → НЕТ\n"
+    "- 'представь и опиши подробно архитектуру проекта' → НЕТ\n"
+    "- 'создай отчёт с графиками' → НЕТ\n\n"
     "Сообщение: {message}\n"
-    "Ответ:"
+    "Ответ (ДА или НЕТ):"
 )
 
 
 async def _verify_image_intent(text: str) -> bool:
     """Double-check with LLM that this is really an image generation request.
-    Returns True only if confirmed. Used to prevent false positives."""
+    Returns True only if confirmed. Used to prevent false positives.
+
+    IMPORTANT: Only checks msg.content, NOT reasoning_content — reasoning models
+    put chain-of-thought in reasoning_content which may contain 'ДА' in reasoning.
+    """
     from core.mws_client import chat_complete
+
+    # Quick negative check — if text is long (>300 chars) it's likely NOT a simple image request
+    if len(text.strip()) > 500:
+        logger.info("Image verify: text too long (%d chars), likely NOT image request", len(text))
+        return False
 
     try:
         completion = await chat_complete(
             model="gpt-oss-20b",
             messages=[{"role": "user", "content": _IMAGE_VERIFY_PROMPT.format(message=text[:300])}],
             temperature=0.0,
-            max_tokens=50,
+            max_tokens=500,  # reasoning models need budget for chain-of-thought + answer
         )
         msg = completion.choices[0].message
-        raw = (msg.content or getattr(msg, "reasoning_content", None) or "").strip().upper()
+        content = (msg.content or "").strip()
+        reasoning = getattr(msg, "reasoning_content", None) or ""
+
+        # For reasoning models: if content is empty, extract from reasoning
+        if not content and reasoning:
+            import re as _re
+            matches = _re.findall(r'\b(ДА|НЕТ|Да|Нет|да|нет)\b', reasoning)
+            content = matches[-1] if matches else ""
+            logger.debug("Image verify: extracted '%s' from reasoning (%d chars)", content, len(reasoning))
+
+        raw = content.upper().strip()
         is_image = "ДА" in raw and "НЕТ" not in raw
         logger.info("Image verify: '%s' → %s (for: %s)", raw[:30], is_image, text[:60])
         return is_image
