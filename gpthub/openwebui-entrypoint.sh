@@ -55,6 +55,10 @@ with open(idx_path, 'r') as f:
 # Remove previous injections
 html = re.sub(r'<style id=\"gpthub-theme\">.*?</style>\n?', '', html, flags=re.DOTALL)
 html = re.sub(r'<script id=\"gpthub-vars\">.*?</script>\n?', '', html, flags=re.DOTALL)
+html = re.sub(r'<meta http-equiv=\"Cache-Control\"[^>]*>\n?', '', html)
+
+# Force no-cache so browsers always pick up updated index.html after rebuild
+nocache = '<meta http-equiv=\"Cache-Control\" content=\"no-cache, no-store, must-revalidate\">\n'
 
 # JS snippet: set CSS vars as inline styles on <html> — highest cascade priority,
 # beats any dynamically-injected Tailwind stylesheet.
@@ -138,8 +142,8 @@ js = '''<script id=\"gpthub-vars\">(function(){
 # CSS tag
 css_tag = '<style id=\"gpthub-theme\">\n' + css + '\n</style>\n'
 
-# Inject JS first, then CSS, before </head>
-inject = js + css_tag
+# Inject nocache + JS + CSS before </head>
+inject = nocache + js + css_tag
 html = html.replace('</head>', inject + '</head>', 1)
 
 with open(idx_path, 'w') as f:

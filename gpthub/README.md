@@ -192,20 +192,24 @@ cd mts_gpt
 # 1. Получить последний код
 git pull origin main
 
-# 2. Пересобрать и перезапустить все сервисы
+# 2. Пересобрать и перезапустить ВСЕ сервисы
 cd gpthub
-docker compose up -d --build
+docker compose up -d --build --force-recreate
 
 # 3. Проверить что всё работает
 docker compose ps
 ```
 
+> **Важно:** `--force-recreate` обязателен — без него OpenWebUI может не применить новый entrypoint (кнопки входа, тема, фильтры).
+
 Все данные (чаты, память, аналитика) сохраняются в Docker volumes и **не теряются** при обновлении.
+
+> **Если кнопки входа или тема не появились** — очистите кеш браузера (`Ctrl+Shift+R` / `Cmd+Shift+R`) или откройте в инкогнито.
 
 > **Если что-то сломалось** после обновления — полный сброс:
 > ```bash
-> docker compose down -v          # удалить контейнеры + данные
-> docker compose up -d --build    # поднять заново с нуля
+> docker compose down -v                   # удалить контейнеры + данные
+> docker compose up -d --build             # поднять заново с нуля
 > ```
 
 ---
