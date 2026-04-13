@@ -1167,3 +1167,13 @@ button[title*="code interpreter" i],
 /* Fallback: button containing only a terminal/code icon next to mic/camera */
 button svg[data-icon="terminal"] { display: none !important; }
 button:has(svg[data-icon="terminal"]) { display: none !important; }
+
+/* ── Disable multi-model comparison: hide "Add Model" (+) button ──────── */
+/* Targets the plus icon used specifically for adding a second model */
+button:has(path[d="M12 6v12m6-6H6"]) {
+  display: none !important;
+}
+/* Also hide via SVG path for older :has() unsupported browsers */
+path[d="M12 6v12m6-6H6"] {
+  display: none !important;
+}

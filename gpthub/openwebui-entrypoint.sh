@@ -85,6 +85,17 @@ js = '''<script id=\"gpthub-vars\">(function(){
   document.addEventListener('DOMContentLoaded', apply);
   [100, 500, 1500].forEach(function(t){ setTimeout(apply, t); });
 
+  // ── Single-model enforcement: hide Add Model (+) button ──────────
+  var _addModelSel='path[d=\"M12 6v12m6-6H6\"]';
+  function hideAddModel(){
+    document.querySelectorAll(_addModelSel).forEach(function(p){
+      var btn=p.closest('button');
+      if(btn) btn.style.setProperty('display','none','important');
+    });
+  }
+  new MutationObserver(hideAddModel).observe(document.documentElement,{childList:true,subtree:true});
+  [0,100,500,1500,3000].forEach(function(t){setTimeout(hideAddModel,t);});
+
   // Hide Code Interpreter button (non-functional in GPTHub)
   function hideCI(){
     document.querySelectorAll(String.fromCharCode(98,117,116,116,111,110)).forEach(function(b){
@@ -170,13 +181,24 @@ js = '''<script id=\"gpthub-vars\">(function(){
 # CSS tag
 css_tag = '<style id=\"gpthub-theme\">\n' + css + '\n</style>\n'
 
-# Inject nocache + JS + CSS before </head>
-inject = nocache + js + css_tag
+# Custom JS file (file preview + upload blacklist)
+custom_js = ''
+custom_js_path = '/app/custom-scripts.js'
+import os
+if os.path.exists(custom_js_path):
+    with open(custom_js_path, 'r') as f:
+        custom_js = '<script id=\"gpthub-custom\">\n' + f.read() + '\n</script>\n'
+
+# Remove previous custom JS injection
+html = re.sub(r'<script id=\"gpthub-custom\">.*?</script>\n?', '', html, flags=re.DOTALL)
+
+# Inject nocache + JS + CSS + custom JS before </head>
+inject = nocache + js + css_tag + custom_js
 html = html.replace('</head>', inject + '</head>', 1)
 
 with open(idx_path, 'w') as f:
     f.write(html)
-print('[GPTHub] Injected CSS (' + str(len(css)) + ' bytes) + JS vars')
+print('[GPTHub] Injected CSS (' + str(len(css)) + ' bytes) + JS vars + custom scripts')
 " "$CSS_FILE" "$INDEX"
 else
   echo "[GPTHub] No custom CSS or index.html found, skipping"

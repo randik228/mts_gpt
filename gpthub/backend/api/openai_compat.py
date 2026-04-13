@@ -22,7 +22,7 @@ from core.smart_router import route as smart_route, detect_multimodal, RoutingDe
 from core.memory_manager import get_manager
 from core.reasoning_parser import StreamingReasoningParser, parse as parse_reasoning, build_reasoning_system_prompt, NATIVE_REASONING_MODELS
 from core.analytics_store import get_store as get_analytics
-from core.web_search import fetch_page, detect_urls, format_page_content
+from core.web_search import fetch_page, detect_urls, format_page_content, search as web_search
 from core.pptx_builder import generate_pptx, parse_presentation_json
 
 logger = logging.getLogger(__name__)
@@ -200,6 +200,10 @@ async def chat_completions(request: Request):
     if not _is_system_request:
         messages_with_mem = await _inject_url_context(messages_with_mem)
 
+    # --- Core system prompt: file priority + behaviour ---
+    if not _is_system_request:
+        messages_with_mem = _inject_core_system_prompt(messages_with_mem)
+
     # --- Image generation special handling ---
     if real_model in ("qwen-image-lightning", "qwen-image"):
         return await _handle_image_generation(
@@ -291,6 +295,15 @@ async def chat_completions(request: Request):
         combined = f"<think>{reasoning}</think>\n\n{raw_content}"
     else:
         combined = raw_content
+
+    # --- Uncertainty detection → auto web search retry ---
+    if not _is_system_request and _detect_uncertainty(raw_content):
+        enriched_answer = await _web_search_and_enrich(
+            messages_final, real_model, req.temperature, req.max_tokens,
+        )
+        if enriched_answer:
+            combined = enriched_answer
+            raw_content = enriched_answer
 
     # --- Reasoning parse (non-stream) ---
     parsed_text = parse_reasoning(combined)
@@ -425,8 +438,24 @@ async def _stream_sse(
         err_chunk = _make_delta_chunk(model, "error", f"\n\n⚠️ Ошибка: {e}")
         err_chunk["choices"][0]["finish_reason"] = "stop"
         yield f"data: {json.dumps(err_chunk, ensure_ascii=False)}\n\n".encode()
-    finally:
-        yield b"data: [DONE]\n\n"
+
+    # --- Streaming uncertainty → auto web search append ---
+    if collected_raw and not skip_memory:
+        _stream_text = "".join(collected_raw)
+        if _detect_uncertainty(_stream_text):
+            try:
+                _search_answer = await _web_search_and_enrich(
+                    messages, model, req.temperature, req.max_tokens,
+                )
+                if _search_answer:
+                    _supplement = "\n\n---\n\n🔍 **Нашёл в интернете:**\n\n" + _search_answer
+                    yield f"data: {json.dumps(_make_delta_chunk(model, 'search', _supplement), ensure_ascii=False)}\n\n".encode()
+                    collected_raw.append(_supplement)
+                    logger.info("Stream: appended web search results (%d chars)", len(_supplement))
+            except Exception:
+                logger.warning("Stream web search retry failed", exc_info=True)
+
+    yield b"data: [DONE]\n\n"
 
     # --- Analytics + Memory after stream ends (fire-and-forget) ---
     latency_ms = (time.time() - t0) * 1000 if t0 else None
@@ -622,6 +651,128 @@ def _last_user_text(messages: list[dict]) -> str:
                     if isinstance(p, dict) and p.get("type") == "text"
                 )
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Core system prompt (file priority, search behaviour)
+# ---------------------------------------------------------------------------
+
+_CORE_SYSTEM_PROMPT = (
+    "ВАЖНЫЕ ПРАВИЛА:\n"
+    "1. Если к ПОСЛЕДНЕМУ сообщению пользователя прикреплены файлы — отвечай ИМЕННО про них. "
+    "Предыдущие файлы из истории чата используй только если пользователь явно просит сравнить или вернуться к ним.\n"
+    "2. Если ты не уверен в фактической информации или не знаешь ответа — честно скажи что не знаешь, "
+    "НЕ выдумывай факты."
+)
+
+
+def _inject_core_system_prompt(messages: list[dict]) -> list[dict]:
+    """Inject core behaviour instructions into the system prompt."""
+    result = list(messages)
+    if result and result[0].get("role") == "system":
+        existing = result[0].get("content") or ""
+        result[0] = {**result[0], "content": f"{existing}\n\n{_CORE_SYSTEM_PROMPT}".strip()}
+    else:
+        result.insert(0, {"role": "system", "content": _CORE_SYSTEM_PROMPT})
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Uncertainty detection & web search retry
+# ---------------------------------------------------------------------------
+
+import re as _re_unc
+
+_UNCERTAINTY_PATTERNS = [
+    _re_unc.compile(r"(?i)(я )?(не знаю|не могу (точно )?сказать|не (располагаю|обладаю|имею) (данн|информац|сведен))", _re_unc.I),
+    _re_unc.compile(r"(?i)(у меня нет|мне не (известн|доступн)).{0,30}(данн|информац|сведен)", _re_unc.I),
+    _re_unc.compile(r"(?i)(не удалось найти|не нашл).{0,20}(информац|данн|ответ)", _re_unc.I),
+    _re_unc.compile(r"(?i)(мои (данные|знания) (ограничен|актуальн).{0,30}(до|по состоян))", _re_unc.I),
+    _re_unc.compile(r"(?i)(i don'?t (know|have).{0,20}(information|data|answer))", _re_unc.I),
+    _re_unc.compile(r"(?i)(не (могу|в состоянии) (проверить|подтвердить|уточнить))", _re_unc.I),
+    _re_unc.compile(r"(?i)(к сожалению).{0,40}(не (знаю|могу|имею|располагаю))", _re_unc.I),
+]
+
+
+def _detect_uncertainty(text: str) -> bool:
+    """Return True if model's response indicates it doesn't know the answer."""
+    for pat in _UNCERTAINTY_PATTERNS:
+        if pat.search(text):
+            return True
+    return False
+
+
+async def _web_search_and_enrich(
+    messages: list[dict], model: str, temperature: float, max_tokens: int | None
+) -> str | None:
+    """
+    Extract a search query from the last user message, search the web,
+    and re-ask the model with enriched context. Returns the new answer or None.
+    """
+    query = _last_user_text(messages).strip()
+    if not query or len(query) < 5:
+        return None
+
+    # Shorten query for search (first 150 chars, no special chars)
+    search_query = query[:150].strip()
+    logger.info("Uncertainty detected — searching web for: %s", search_query[:80])
+
+    try:
+        results = await web_search(search_query, max_results=3)
+    except Exception:
+        logger.warning("Web search failed during uncertainty retry", exc_info=True)
+        return None
+
+    if not results:
+        return None
+
+    # Fetch top result pages for context
+    context_parts: list[str] = []
+    for r in results[:2]:
+        url = r.get("url", "")
+        snippet = r.get("snippet", "")
+        title = r.get("title", "")
+        if snippet:
+            context_parts.append(f"**{title}** ({url})\n{snippet}")
+        if url:
+            try:
+                page_text = await fetch_page(url, max_chars=3000)
+                if page_text and not page_text.startswith("[Ошибка"):
+                    context_parts.append(f"Содержимое {url}:\n{page_text[:3000]}")
+            except Exception:
+                pass
+
+    if not context_parts:
+        return None
+
+    web_context = (
+        "Результаты веб-поиска (используй для ответа, указывай источники):\n\n"
+        + "\n\n---\n\n".join(context_parts)
+    )
+
+    # Rebuild messages with search context
+    enriched = list(messages)
+    if enriched and enriched[0].get("role") == "system":
+        existing = enriched[0].get("content") or ""
+        enriched[0] = {**enriched[0], "content": f"{existing}\n\n{web_context}".strip()}
+    else:
+        enriched.insert(0, {"role": "system", "content": web_context})
+
+    try:
+        completion = await mws_client.chat_complete(
+            model=model,
+            messages=enriched,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        content = completion.choices[0].message.content or ""
+        if content and not _detect_uncertainty(content):
+            logger.info("Web search retry succeeded (%d chars)", len(content))
+            return content
+    except Exception:
+        logger.warning("Web search retry LLM call failed", exc_info=True)
+
+    return None
 
 
 async def _inject_url_context(messages: list[dict]) -> list[dict]:
