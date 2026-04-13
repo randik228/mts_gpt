@@ -31,6 +31,8 @@ services:
       - AUDIO_STT_OPENAI_API_BASE_URL=http://proxy:8000/v1
       - AUDIO_STT_OPENAI_API_KEY=${MWS_API_KEY}
       - AUDIO_STT_MODEL=whisper-turbo-local
+      - CONTENT_EXTRACTION_ENGINE=default
+      - FILE_MAX_SIZE=500
     volumes:
       - webui_data:/app/backend/data
       - ./openwebui-custom.css:/app/custom-theme.css:ro

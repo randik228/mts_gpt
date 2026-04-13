@@ -324,12 +324,46 @@ class MemoryManager:
         logger.info("extract_and_save: saved %d/%d for user=%s", len(saved), len(fact_items), user_id)
         return saved
 
-    async def _is_duplicate(self, user_id: str, fact: str, threshold: float = 0.92) -> bool:
-        """Return True if a very similar memory already exists for this user."""
+    async def _is_duplicate(self, user_id: str, fact: str, threshold: float = 0.85) -> bool:
+        """Return True if a very similar memory already exists for this user.
+        Uses both semantic similarity (embedding cosine ≥ threshold) and
+        keyword overlap to catch rephrased facts like 'Зовут Олег' vs 'Имя — Олег'.
+        """
         if self._index.ntotal == 0:
             return False
-        existing = await self.search_memories(user_id, fact, top_k=1, min_score=threshold)
-        return len(existing) > 0
+        # 1. Semantic similarity check (lowered from 0.92 to 0.85)
+        existing = await self.search_memories(user_id, fact, top_k=3, min_score=threshold)
+        if existing:
+            logger.debug("_is_duplicate: semantic match for '%s': %s",
+                         fact[:50], [(m["content"][:40], m["score"]) for m in existing])
+            return True
+
+        # 2. Keyword overlap check — catch "Имя: Олег" vs "Зовут Олег"
+        #    Normalize and compare key tokens
+        import re
+        fact_lower = fact.lower().strip()
+        fact_tokens = set(re.findall(r'[а-яёa-z0-9]+', fact_lower))
+        if len(fact_tokens) < 2:
+            return False
+        # Check against all user memories (lightweight — just text comparison)
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT content FROM memories WHERE user_id = ?", (user_id,)
+            )
+            rows = await cursor.fetchall()
+        for (existing_text,) in rows:
+            existing_lower = existing_text.lower().strip()
+            existing_tokens = set(re.findall(r'[а-яёa-z0-9]+', existing_lower))
+            if not existing_tokens:
+                continue
+            # Jaccard similarity on tokens
+            overlap = len(fact_tokens & existing_tokens)
+            union = len(fact_tokens | existing_tokens)
+            if union > 0 and overlap / union >= 0.6:
+                logger.debug("_is_duplicate: keyword overlap for '%s' ≈ '%s' (%.2f)",
+                             fact[:40], existing_text[:40], overlap / union)
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Dashboard CRUD

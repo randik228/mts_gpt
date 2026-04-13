@@ -110,14 +110,43 @@ async def chat_completions(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    # Log extra fields OpenWebUI sends (for debugging user identification)
+    _extra_keys = set(body.keys()) - {"model", "messages", "stream", "temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty", "stop", "user"}
+    if _extra_keys:
+        logger.debug("chat_completions extra body keys: %s", {k: str(body[k])[:120] for k in _extra_keys})
+
     try:
         req = ChatRequest(**body)
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    # --- Resolve user_id: prefer req.user, fall back to OpenWebUI metadata ---
+    _resolved_user = req.user
+    if not _resolved_user:
+        # OpenWebUI sends metadata with user info in newer versions
+        meta = body.get("metadata") or {}
+        _resolved_user = (
+            meta.get("user_email")
+            or meta.get("user", {}).get("email") if isinstance(meta.get("user"), dict) else None
+        ) or meta.get("user_id")
+    if not _resolved_user:
+        # Try Authorization header — OpenWebUI sends Bearer <jwt>
+        # but we can't decode without key; use chat_id as fallback grouping
+        _resolved_user = (body.get("metadata") or {}).get("chat_id")
+    # Store resolved user back on req for downstream use
+    if _resolved_user:
+        req.user = _resolved_user
+
     # Resolve virtual model → real model via Smart Router
     messages_raw = [m.model_dump(exclude_none=True) for m in req.messages]
     has_image, has_audio = detect_multimodal(messages_raw)
+
+    # --- Audio transcription: transcribe audio parts BEFORE routing ---
+    if has_audio:
+        from core.smart_router import transcribe_audio_from_message
+        logger.info("Audio detected in chat — transcribing before routing")
+        messages_raw = await transcribe_audio_from_message(messages_raw)
+        has_audio = False  # audio replaced with text, re-route as text
 
     is_auto = req.model == "auto"
     virtual_hint = req.model if req.model in _VIRTUAL_MAP and not is_auto else None
@@ -155,7 +184,8 @@ async def chat_completions(request: Request):
     # --- Memory inject (before request) ---
     user_id = req.user or "default"
     # Skip memory for OpenWebUI internal system requests (title/tag generation etc.)
-    _is_system_request = _detect_system_request(messages_raw)
+    # Also treat requests without a user as system requests (OpenWebUI title/tag gen)
+    _is_system_request = _detect_system_request(messages_raw) or not req.user
     messages_with_mem = (
         messages_raw if _is_system_request
         else await _inject_memories(messages_raw, user_id)
@@ -626,6 +656,51 @@ async def _inject_url_context(messages: list[dict]) -> list[dict]:
 # Image Generation handler
 # ---------------------------------------------------------------------------
 
+import re as _re_img
+
+# Pattern to extract prompt from <details><summary>Промпт</summary>..prompt..</details>
+_IMG_PROMPT_RE = _re_img.compile(
+    r"<details>\s*<summary>Промпт</summary>\s*\n*(.*?)\n*\s*</details>",
+    _re_img.DOTALL,
+)
+
+# Pattern to detect image generation keywords in user messages
+_IMG_KW_RE = _re_img.compile(
+    r"(нарисуй|сгенерируй|создай\s+изображение|draw|generate\s+image|imagine)",
+    _re_img.I,
+)
+
+
+def _extract_prev_image_prompt(messages: list[dict]) -> str | None:
+    """
+    Look through conversation history for the most recent image generation result.
+    First tries to extract the prompt from a <details>Промпт</details> block
+    in an assistant message. Falls back to finding the most recent user message
+    with image-generation keywords.
+    Returns the prompt text, or None if no previous image found.
+    """
+    # Strategy 1: Find prompt in assistant's <details> block (most reliable)
+    for msg in reversed(messages):
+        if msg.get("role") == "assistant":
+            content = msg.get("content", "") or ""
+            m = _IMG_PROMPT_RE.search(content)
+            if m:
+                return m.group(1).strip()
+
+    # Strategy 2: Find previous user message with image keywords
+    found_current = False
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            if not found_current:
+                found_current = True
+                continue
+            content = msg.get("content", "")
+            text = content if isinstance(content, str) else str(content)
+            if _IMG_KW_RE.search(text):
+                return text
+    return None
+
+
 async def _handle_image_generation(
     req: "ChatRequest",
     messages: list[dict],
@@ -641,6 +716,10 @@ async def _handle_image_generation(
     Tries MWS images endpoint; if unsupported, returns clear error.
     Supports both streaming and non-streaming responses so OpenWebUI
     doesn't hang when it sends stream=true.
+
+    For follow-up messages ("make it brighter", "change colors"), extracts
+    the previous image prompt from conversation history and builds a
+    combined prompt so the model can generate an updated version.
     """
     # Extract the image prompt from user's last message
     prompt = ""
@@ -650,8 +729,26 @@ async def _handle_image_generation(
             prompt = content if isinstance(content, str) else str(content)
             break
 
+    # --- Inject previous image context for follow-ups ---
+    # If conversation has assistant messages with image markdown, extract the
+    # original prompt so user can say "make it brighter" and we re-generate
+    # with a modified combined prompt.
+    prev_prompt = _extract_prev_image_prompt(messages)
+    if prev_prompt and prev_prompt != prompt:
+        prompt = (
+            f"Предыдущее изображение было сгенерировано по запросу: \"{prev_prompt}\". "
+            f"Пользователь хочет изменить его: {prompt}"
+        )
+        logger.info("Image follow-up: combined prompt = %s", prompt[:120])
+
+    # Store the clean prompt for description (before sending to API)
+    _clean_prompt = prompt
+
     try:
         result = await mws_client.generate_image(prompt, model=model)
+        # Append a hidden description so follow-up messages can reference it
+        # This appears as small text under the image in the chat
+        result += f"\n\n<details><summary>Промпт</summary>\n\n{_clean_prompt}\n\n</details>"
     except Exception as e:
         logger.warning("Image generation failed: %s", e)
         result = (
