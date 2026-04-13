@@ -1168,12 +1168,127 @@ button[title*="code interpreter" i],
 button svg[data-icon="terminal"] { display: none !important; }
 button:has(svg[data-icon="terminal"]) { display: none !important; }
 
-/* ── Disable multi-model comparison: hide "Add Model" (+) button ──────── */
-/* Targets the plus icon used specifically for adding a second model */
-button:has(path[d="M12 6v12m6-6H6"]) {
+/* ── Limit to max 2 models — JS handles show/hide of Add Model button ── */
+
+/* ── Code blocks: redesigned ────────────────────────────────────────── */
+
+/* Hide Run button + STDOUT output */
+.run-code-button {
   display: none !important;
 }
-/* Also hide via SVG path for older :has() unsupported browsers */
-path[d="M12 6v12m6-6H6"] {
+div.rounded-b-lg:has(.text-gray-500.mb-1) {
+  display: none !important;
+}
+
+/* Read-only: disable editing */
+pre code[contenteditable="true"],
+pre[contenteditable="true"] {
+  -webkit-user-modify: read-only !important;
+}
+.cm-content[contenteditable="true"] {
+  -webkit-user-modify: read-only !important;
+  caret-color: transparent !important;
+}
+.cm-editor .cm-cursor {
+  display: none !important;
+}
+.cm-editor .cm-activeLine {
+  background: transparent !important;
+}
+.cm-editor.cm-focused {
+  outline: none !important;
+}
+
+/* ── Code block container ── */
+html.dark .relative.my-2.flex.flex-col.rounded-lg {
+  background: rgba(22, 24, 30, .95) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  margin: 10px 0 !important;
+}
+
+/* ── Language badge — small pill top-left ── */
+html.dark .relative.my-2.flex.flex-col.rounded-lg > .text-text-300.absolute {
+  color: rgba(255,255,255,.35) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.6px !important;
+  text-transform: uppercase !important;
+  padding: 6px 14px !important;
+  z-index: 5 !important;
+  background: transparent !important;
+}
+
+/* ── Toolbar: hide by default, show on hover ── */
+html.dark .relative.my-2.flex.flex-col.rounded-lg > .sticky {
+  background: transparent !important;
+  opacity: 0 !important;
+  transition: opacity .2s ease !important;
+  z-index: 6 !important;
+}
+html.dark .relative.my-2.flex.flex-col.rounded-lg:hover > .sticky {
+  opacity: 1 !important;
+}
+/* Toolbar buttons */
+html.dark .relative.my-2.flex.flex-col.rounded-lg > .sticky button {
+  background: rgba(255,255,255,.06) !important;
+  border: none !important;
+  border-radius: 5px !important;
+  color: rgba(255,255,255,.5) !important;
+  font-size: 11px !important;
+  padding: 2px 8px !important;
+  transition: all .15s ease !important;
+  font-weight: 500 !important;
+}
+html.dark .relative.my-2.flex.flex-col.rounded-lg > .sticky button:hover {
+  background: rgba(255,255,255,.12) !important;
+  color: rgba(255,255,255,.85) !important;
+}
+html.dark .save-code-button:hover {
+  background: rgba(227,6,17,.15) !important;
+  color: #ff8a8a !important;
+}
+html.dark .relative.my-2.flex.flex-col.rounded-lg > .sticky button svg {
+  width: 12px !important;
+  height: 12px !important;
+  opacity: .5 !important;
+}
+
+/* ── Code area: transparent bg ── */
+html.dark .relative.my-2.flex.flex-col.rounded-lg div[class*="language-"],
+html.dark .relative.my-2.flex.flex-col.rounded-lg div[class*="language-"] > .pt-7,
+html.dark .relative.my-2.flex.flex-col.rounded-lg .cm-editor {
+  background: transparent !important;
+}
+
+/* ── Line numbers — subtle, with clean spacing ── */
+html.dark .cm-gutters {
+  background: transparent !important;
+  border-right: 1px solid rgba(255,255,255,.04) !important;
+  min-width: 36px !important;
+  padding-right: 0 !important;
+}
+html.dark .cm-gutters .cm-gutterElement {
+  color: rgba(255,255,255,.15) !important;
+  font-size: 11px !important;
+  padding: 0 10px 0 0 !important;
+  text-align: right !important;
+  min-width: 28px !important;
+}
+html.dark .cm-gutters .cm-activeLineGutter {
+  background: transparent !important;
+}
+
+/* ── Code text — comfortable left margin ── */
+html.dark .cm-content {
+  padding: 0 14px 0 12px !important;
+}
+html.dark .cm-content .cm-line {
+  padding-left: 0 !important;
+}
+
+/* ── Bottom empty bar: hide ── */
+html.dark .relative.my-2.flex.flex-col.rounded-lg > div:last-child:not(div[class*="language-"]):not(.sticky) {
   display: none !important;
 }

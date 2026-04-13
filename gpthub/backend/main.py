@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api import openai_compat, memory, taskchain, analytics, models, settings
+from api import openai_compat, memory, taskchain, analytics, models, settings, suggestions
 
 logging.basicConfig(level=logging.INFO)
 
@@ -35,6 +35,7 @@ app.include_router(taskchain.router, prefix="/api/taskchain")
 app.include_router(analytics.router, prefix="/api/analytics")
 app.include_router(models.router, prefix="/api/models")
 app.include_router(settings.router, prefix="/api/settings")
+app.include_router(suggestions.router, prefix="/api/suggestions")
 
 
 @app.get("/health")

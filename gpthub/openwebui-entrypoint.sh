@@ -85,16 +85,41 @@ js = '''<script id=\"gpthub-vars\">(function(){
   document.addEventListener('DOMContentLoaded', apply);
   [100, 500, 1500].forEach(function(t){ setTimeout(apply, t); });
 
-  // ── Single-model enforcement: hide Add Model (+) button ──────────
+  // ── Max 2 models: hide Add Model (+) when 2 already selected ─────
   var _addModelSel='path[d=\"M12 6v12m6-6H6\"]';
-  function hideAddModel(){
+  function enforceMaxModels(){
     document.querySelectorAll(_addModelSel).forEach(function(p){
       var btn=p.closest('button');
-      if(btn) btn.style.setProperty('display','none','important');
+      if(!btn) return;
+      // Walk up to the container that holds all model rows (flex-col)
+      var wrap=btn;
+      for(var i=0;i<5&&wrap;i++){
+        wrap=wrap.parentElement;
+        if(wrap&&wrap.className&&wrap.className.indexOf('flex-col')>-1) break;
+      }
+      if(!wrap) return;
+      // Count model selector rows: buttons with model names (not the + button, not minus, not default)
+      var modelBtns=wrap.querySelectorAll('button');
+      var count=0;
+      modelBtns.forEach(function(b){
+        if(b.querySelector(_addModelSel)) return;
+        var t=(b.textContent||'').trim();
+        // Skip utility buttons (minus, set default)
+        if(t==='-'||t===''||t.length<3) return;
+        // Skip non-model buttons
+        if(t.indexOf('\\u0423\\u0441\\u0442\\u0430\\u043d\\u043e\\u0432\\u0438\\u0442\\u044c')>-1) return;
+        if(t.indexOf('Установить')>-1) return;
+        count++;
+      });
+      if(count>=2){
+        btn.style.setProperty('display','none','important');
+      } else {
+        btn.style.removeProperty('display');
+      }
     });
   }
-  new MutationObserver(hideAddModel).observe(document.documentElement,{childList:true,subtree:true});
-  [0,100,500,1500,3000].forEach(function(t){setTimeout(hideAddModel,t);});
+  new MutationObserver(enforceMaxModels).observe(document.documentElement,{childList:true,subtree:true});
+  [0,100,500,1500,3000].forEach(function(t){setTimeout(enforceMaxModels,t);});
 
   // Hide Code Interpreter button (non-functional in GPTHub)
   function hideCI(){
