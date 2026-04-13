@@ -183,22 +183,29 @@ _EXTRACT_FACTS_PROMPT = """\
 {dialogue}"""
 
 
+_IMAGE_TIMEOUT = 25  # seconds — fail fast, don't hang the UI
+
+
 async def generate_image(prompt: str, *, model: str = "qwen-image-lightning") -> str:
     """
     Try to generate an image via MWS API.
-    First try /images/generations, then fallback to chat completions.
+    First try /images/generations (with a strict timeout),
+    then fallback to chat completions.
     Returns markdown with image URL/base64.
     """
     client = get_client()
 
-    # Attempt 1: OpenAI-compatible images endpoint
+    # Attempt 1: OpenAI-compatible images endpoint (strict timeout)
     try:
         logger.info("generate_image: attempting images.generate model=%s prompt=%s", model, prompt[:60])
-        response = await client.images.generate(
-            model=model,
-            prompt=prompt,
-            n=1,
-            size="1024x1024",
+        response = await asyncio.wait_for(
+            client.images.generate(
+                model=model,
+                prompt=prompt,
+                n=1,
+                size="1024x1024",
+            ),
+            timeout=_IMAGE_TIMEOUT,
         )
         logger.info("generate_image: images.generate returned data=%d", len(response.data) if response.data else 0)
         if response.data:
@@ -209,20 +216,27 @@ async def generate_image(prompt: str, *, model: str = "qwen-image-lightning") ->
                 return f"![Сгенерированное изображение]({url})"
             elif b64:
                 return f"![Сгенерированное изображение](data:image/png;base64,{b64})"
+    except asyncio.TimeoutError:
+        logger.warning("images.generate timed out after %ds (model=%s)", _IMAGE_TIMEOUT, model)
     except Exception as e:
         logger.warning("images.generate failed (model=%s): %s: %s", model, type(e).__name__, e)
 
-    # Attempt 2: Use chat completions with image model (fallback)
+    # Attempt 2: Use chat completions with image model (fallback, also with timeout)
     logger.info("generate_image: falling back to chat_complete model=%s", model)
     try:
-        completion = await chat_complete(
-            model=model,
-            messages=[{"role": "user", "content": f"Generate an image: {prompt}"}],
-            temperature=0.7,
+        completion = await asyncio.wait_for(
+            chat_complete(
+                model=model,
+                messages=[{"role": "user", "content": f"Generate an image: {prompt}"}],
+                temperature=0.7,
+            ),
+            timeout=_IMAGE_TIMEOUT,
         )
         content = completion.choices[0].message.content or ""
         if content:
             return content
+    except asyncio.TimeoutError:
+        logger.warning("chat_complete with image model timed out after %ds", _IMAGE_TIMEOUT)
     except Exception as e:
         logger.warning("chat_complete with image model failed: %s", e)
 
