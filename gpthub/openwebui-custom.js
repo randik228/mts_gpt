@@ -968,3 +968,369 @@
   console.log('[GPTHub] Model descriptions loaded');
 })();
 
+// ═══════════════════════════════════════════════════════════════════════
+//  7. CARD BUTTON — "Создать карточку" in assistant message action bar
+// ═══════════════════════════════════════════════════════════════════════
+(function () {
+  'use strict';
+
+  var CARD_API   = '/api/chat/completions';
+  var CARD_MODEL = 'gpt-oss-20b'; // fast model for card generation
+
+  function _getToken() {
+    return localStorage.getItem('token') || '';
+  }
+
+  // Try to read current model from OW UI
+  function _getModel() {
+    // Model selector button in header stores selected model as text or data-value
+    var sel = document.querySelector('[data-testid="model-selector-button"], #model-selector button, button[aria-haspopup="listbox"]');
+    if (sel) {
+      var v = sel.getAttribute('data-value') || sel.dataset.model;
+      if (v) return v;
+    }
+    // Fallback: any visible model pill text that looks like a model id
+    var pills = document.querySelectorAll('[aria-label="Selected model"], .model-selector, [class*="model-selector"]');
+    for (var i = 0; i < pills.length; i++) {
+      var t = pills[i].textContent.trim();
+      if (t && t.length > 2 && t.length < 60) return t;
+    }
+    return 'auto';
+  }
+
+  // Extract images from message content only (skip avatars, favicons, UI icons)
+  function _getMsgImages(msgEl) {
+    var imgs = [];
+    // Only look inside the actual prose/content area, not avatar containers
+    var contentEl = msgEl.querySelector('.chat-assistant, .prose, [class*="markdown"]') || msgEl;
+    contentEl.querySelectorAll('img').forEach(function (img) {
+      if (!img.src) return;
+      if (img.classList.contains('rounded-full')) return;      // avatar
+      if (img.src.includes('/static/favicon')) return;         // OW favicon
+      if (img.src.includes('/static/logo')) return;            // OW logo
+      if (img.naturalWidth < 120 || img.naturalHeight < 80) return; // tiny icon
+      imgs.push(img.src);
+    });
+    return imgs;
+  }
+
+  // Call LLM → get card JSON
+  async function _fetchCardData(text, model, token) {
+    var prompt =
+      'Проанализируй текст и создай карточку с ключевой информацией.\n\n' +
+      'Выбери лучший формат:\n' +
+      '• "points" — список действий, советов, шагов (предпочтительно)\n' +
+      '• "facts"  — интересные факты или данные\n' +
+      '• "summary"— объяснение или рассуждение\n\n' +
+      'Верни ТОЛЬКО валидный JSON (без markdown, без пояснений):\n' +
+      '{"title":"Краткий заголовок до 6 слов","format":"points","content":["пункт 1","пункт 2","пункт 3"]}\n\n' +
+      'Для format=summary content — одна строка. Для points/facts — 3–6 строк.\n\n' +
+      'Текст:\n' + text.slice(0, 3000);
+
+    var abort = new AbortController();
+    var timeout = setTimeout(function () { abort.abort(); }, 20000);
+    var resp = await fetch(CARD_API, {
+      method: 'POST',
+      signal: abort.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({
+        model: CARD_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 1500,
+        stream: false,
+      }),
+    });
+    clearTimeout(timeout);
+
+    var data = await resp.json();
+    var raw = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '{}';
+    // Strip reasoning blocks (<think>, <details>, etc.)
+    raw = raw.replace(/<think[\s\S]*?<\/think>/gi, '').trim();
+    raw = raw.replace(/<details[\s\S]*?<\/details>/gi, '').trim();
+    // Strip markdown fences and separators
+    raw = raw.replace(/^[-—]{3,}\s*/gm, '').trim();
+    raw = raw.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    // Extract first JSON object if there's surrounding text
+    var jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) raw = jsonMatch[0];
+    return JSON.parse(raw);
+  }
+
+  // ── html2canvas loader (lazy, from CDN) ──────────────────────────────
+  var _h2cReady = false;
+  var _h2cQueue = [];
+  function _h2c(cb) {
+    if (_h2cReady) { cb(); return; }
+    _h2cQueue.push(cb);
+    if (document.querySelector('script[src*="html2canvas"]')) return;
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload = function () {
+      _h2cReady = true;
+      _h2cQueue.forEach(function (fn) { fn(); });
+      _h2cQueue = [];
+    };
+    document.head.appendChild(s);
+  }
+
+  // ── Build inner card element (the PNG-able part) ──────────────────────
+  function _buildInner(cardData, imgSrcs, viewMode) {
+    var isMini  = viewMode === 'mini';
+    var isSlide = viewMode === 'slide';
+
+    var items = Array.isArray(cardData.content)
+      ? cardData.content
+      : [cardData.content];
+
+    var maxItems = isMini ? 3 : 6;
+
+    // Image HTML
+    var imgHtml = '';
+    if (imgSrcs.length) {
+      imgHtml = '<div class="gpthub-ci-img' + (isSlide ? ' side' : '') + '">' +
+        '<img src="' + imgSrcs[0] + '" crossorigin="anonymous"/>' +
+        '</div>';
+    }
+
+    // Header
+    var headerHtml =
+      '<div class="gpthub-ci-header">' +
+        '<span class="gpthub-ci-brand">MTS AI</span>' +
+        '<div class="gpthub-ci-title">' + (cardData.title || '') + '</div>' +
+      '</div>';
+
+    // Body
+    var bodyHtml;
+    if (cardData.format === 'summary' || typeof cardData.content === 'string') {
+      bodyHtml = '<div class="gpthub-ci-summary">' + items[0] + '</div>';
+    } else {
+      bodyHtml = '<ul class="gpthub-ci-list">' +
+        items.slice(0, maxItems).map(function (t) {
+          return '<li>' + t + '</li>';
+        }).join('') +
+        '</ul>';
+    }
+
+    var inner = document.createElement('div');
+    inner.className = 'gpthub-card-inner' +
+      (isMini ? ' view-mini' : isSlide ? ' view-slide' : ' view-card');
+
+    if (isSlide && imgSrcs.length) {
+      inner.innerHTML =
+        '<div class="gpthub-ci-slide-wrap">' +
+          imgHtml +
+          '<div class="gpthub-ci-slide-text">' + headerHtml + bodyHtml + '</div>' +
+        '</div>';
+    } else {
+      inner.innerHTML = imgHtml + headerHtml + bodyHtml;
+    }
+
+    return inner;
+  }
+
+  // ── Render/re-render card inside panel ───────────────────────────────
+  function _render(wrap, cardData, imgSrcs, viewMode) {
+    wrap.innerHTML = '';
+    wrap.appendChild(_buildInner(cardData, imgSrcs, viewMode));
+  }
+
+  // ── Show card panel — insert after the action bar (bar) ──────────────
+  function _showPanel(bar, cardData, imgSrcs) {
+    // Remove any existing panel in this message
+    var existingArea = bar.closest('[id^="message-"]') || bar.parentElement;
+    var existing = existingArea.querySelector('.gpthub-card-panel');
+    if (existing) existing.remove();
+
+    var panel = document.createElement('div');
+    panel.className = 'gpthub-card-panel';
+
+    var viewMode = 'card';
+
+    // ── Switcher ──────────────────────────────────────────────────────
+    var switcher = document.createElement('div');
+    switcher.className = 'gpthub-card-switcher';
+    ['card', 'slide', 'mini'].forEach(function (mode) {
+      var b = document.createElement('button');
+      b.className = 'gpthub-card-view-btn' + (mode === viewMode ? ' active' : '');
+      b.textContent = { card: 'Карточка', slide: 'Слайд', mini: 'Мини' }[mode];
+      b.onclick = function () {
+        viewMode = mode;
+        panel.querySelectorAll('.gpthub-card-view-btn').forEach(function (x) { x.classList.remove('active'); });
+        b.classList.add('active');
+        _render(wrap, cardData, imgSrcs, viewMode);
+      };
+      switcher.appendChild(b);
+    });
+
+    // ── Action buttons ────────────────────────────────────────────────
+    var acts = document.createElement('div');
+    acts.className = 'gpthub-card-actions';
+
+    // Download PNG
+    var dlBtn = document.createElement('button');
+    dlBtn.className = 'gpthub-card-action-btn';
+    dlBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Скачать PNG</span>';
+    dlBtn.onclick = function () {
+      var inner = panel.querySelector('.gpthub-card-inner');
+      if (!inner) return;
+      _h2c(function () {
+        window.html2canvas(inner, { scale: 2, useCORS: true, logging: false }).then(function (canvas) {
+          var a = document.createElement('a');
+          a.download = 'mts-ai-card.png';
+          a.href = canvas.toDataURL('image/png');
+          a.click();
+        });
+      });
+    };
+
+    // Copy
+    var cpBtn = document.createElement('button');
+    cpBtn.className = 'gpthub-card-action-btn';
+    cpBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Копировать</span>';
+    cpBtn.onclick = function () {
+      var body = Array.isArray(cardData.content)
+        ? cardData.content.map(function (s) { return '• ' + s; }).join('\n')
+        : cardData.content;
+      navigator.clipboard.writeText(cardData.title + '\n\n' + body);
+      cpBtn.style.color = '#4ade80';
+      setTimeout(function () { cpBtn.style.color = ''; }, 1500);
+    };
+
+    // Mailto
+    var mailBtn = document.createElement('button');
+    mailBtn.className = 'gpthub-card-action-btn';
+    mailBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><span>Отправить</span>';
+    mailBtn.onclick = function () {
+      var body = Array.isArray(cardData.content)
+        ? cardData.content.map(function (s) { return '• ' + s; }).join('\n')
+        : cardData.content;
+      window.location.href = 'mailto:?subject=' +
+        encodeURIComponent('MTS AI: ' + cardData.title) +
+        '&body=' + encodeURIComponent(cardData.title + '\n\n' + body);
+    };
+
+    // Close
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'gpthub-card-action-btn';
+    closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Закрыть</span>';
+    closeBtn.onclick = function () { panel.remove(); };
+
+    acts.appendChild(dlBtn);
+    acts.appendChild(cpBtn);
+    acts.appendChild(mailBtn);
+    acts.appendChild(closeBtn);
+
+    // ── Toolbar row ───────────────────────────────────────────────────
+    var toolbar = document.createElement('div');
+    toolbar.className = 'gpthub-card-toolbar';
+    toolbar.appendChild(switcher);
+
+    // ── Card wrap ─────────────────────────────────────────────────────
+    var wrap = document.createElement('div');
+    wrap.className = 'gpthub-card-wrap';
+    _render(wrap, cardData, imgSrcs, viewMode);
+
+    panel.appendChild(toolbar);
+    panel.appendChild(wrap);
+    panel.appendChild(acts);
+    // Insert panel directly after the action bar in its parent container
+    bar.parentElement.insertBefore(panel, bar.nextSibling);
+  }
+
+  // ── Inject "Карточка" button into assistant message action bars ───────
+  var _ATTR = 'data-gpthub-card';
+
+  // Find assistant message action bars — uses confirmed OW DOM structure
+  // The bar is: <div class="flex justify-start overflow-x-auto buttons ...">
+  function _findActionBars() {
+    var result = [];
+    document.querySelectorAll('div.buttons').forEach(function (bar) {
+      // Skip already processed or already has our button
+      if (bar.getAttribute(_ATTR) || bar.querySelector('.gpthub-card-btn')) return;
+      // Must have at least one aria-labeled child
+      if (!bar.querySelector('[aria-label]')) return;
+      result.push(bar);
+    });
+    return result;
+  }
+
+  function _injectCardBtns() {
+    _findActionBars().forEach(function (bar) {
+      bar.setAttribute(_ATTR, '1');
+
+      // OW structure: bar → div → div.flex-auto → div#message-{id}
+      var msgEl = bar.closest('[id^="message-"]') || bar.parentElement;
+
+
+      var btn = document.createElement('button');
+      btn.className = 'gpthub-card-btn';
+      btn.title = 'Создать карточку';
+      btn.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+          '<rect x="2" y="3" width="20" height="18" rx="2.5"/>' +
+          '<line x1="2" y1="9" x2="22" y2="9"/>' +
+          '<line x1="8" y1="3" x2="8" y2="9"/>' +
+        '</svg>' +
+        '<span>Карточка</span>';
+
+      btn.onclick = async function () {
+        if (btn.dataset.loading) return;
+        btn.dataset.loading = '1';
+
+        // Show loading state: replace label with wave text
+        var span = btn.querySelector('span');
+        var origText = span ? span.textContent : 'Карточка';
+        if (span) {
+          var label = 'Карточка создаётся';
+          // negative delay keeps phase offset forever (positive delay syncs up after 1 cycle)
+          span.innerHTML = label
+            .split('')
+            .map(function (ch, i) {
+              if (ch === ' ') return '<span class="gpthub-wave-space"> </span>';
+              return '<span class="gpthub-wave-char" style="animation-delay:-' + ((label.length - i) * 0.06).toFixed(2) + 's">' + ch + '</span>';
+            })
+            .join('');
+          span.classList.add('gpthub-wave-label');
+        }
+
+        try {
+          // Use btn.parentElement (the action bar) at click time — avoids stale refs
+          var liveBar = btn.parentElement;
+          var msgContainer = liveBar.closest('[id^="message-"]') || liveBar.parentElement;
+          var prose = msgContainer.querySelector('.prose, .markdown, [class*="prose"]');
+          var text  = prose ? prose.innerText.trim() : msgContainer.innerText.trim();
+          var imgs  = _getMsgImages(msgContainer);
+          var model = _getModel();
+          var token = _getToken();
+
+          var cardData = await _fetchCardData(text, model, token);
+          _showPanel(liveBar, cardData, imgs);
+        } catch (err) {
+          console.error('[GPTHub] Card error:', err);
+          btn.style.color = '#f87171';
+          setTimeout(function () { btn.style.color = ''; }, 2000);
+        }
+
+        // Restore button label
+        if (span) {
+          span.innerHTML = origText;
+          span.classList.remove('gpthub-wave-label');
+        }
+        delete btn.dataset.loading;
+      };
+
+      bar.appendChild(btn);
+    });
+  }
+
+  new MutationObserver(function () {
+    _injectCardBtns();
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  setTimeout(_injectCardBtns, 1200);
+
+  console.log('[GPTHub] Card button loaded');
+})();
