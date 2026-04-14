@@ -64,9 +64,7 @@ async def list_models():
     accepts them as valid model IDs (used by the frontend toolbar).
     Non-chat models (embeddings, audio, image-gen) are hidden from the dropdown.
     """
-    from core.model_registry import TOOL_ALIASES
     entries = [_model_object(m) for m in VIRTUAL_MODELS]
-    entries += [_model_object(m) for m in TOOL_ALIASES]     # toolbar aliases
     entries += [_model_object(m) for m in MODELS if m not in _HIDDEN_MODELS]
     return {"object": "list", "data": entries}
 
@@ -143,7 +141,7 @@ async def chat_completions(request: Request):
     req.user = _resolved_user
     # Extract chat_id for memory association
     _chat_id = meta.get("chat_id")
-    logger.debug("Resolved user=%s chat_id=%s from metadata keys=%s", _resolved_user, _chat_id, list(meta.keys())[:10])
+    logger.debug("USER_RESOLVE: user=%s chat_id=%s meta_keys=%s req.user=%s meta_user=%s", _resolved_user, _chat_id, list(meta.keys())[:10], req.user, meta.get("user"))
 
     # Resolve virtual model → real model via Smart Router
     messages_raw = [m.model_dump(exclude_none=True) for m in req.messages]
@@ -254,7 +252,8 @@ async def chat_completions(request: Request):
                         requested=req.model, t0=t0,
                         suppress_reasoning=suppress_reasoning,
                         skip_memory=_is_system_request,
-                        chat_id=chat_id),
+                        chat_id=chat_id,
+                        messages_raw=messages_raw),
             media_type="text/event-stream",
             headers={
                 "X-GPTHub-Model": real_model,
@@ -372,6 +371,7 @@ async def _stream_sse(
     suppress_reasoning: bool = False,
     skip_memory: bool = False,
     chat_id: str | None = None,
+    messages_raw: list[dict] | None = None,
 ) -> AsyncIterator[bytes]:
     """Yield SSE bytes from MWS streaming response."""
     # NOTE: do NOT send a routing metadata chunk — OpenWebUI cannot parse
@@ -491,7 +491,7 @@ async def _stream_sse(
     ))
     if collected_raw and not skip_memory:
         assistant_text = "".join(collected_raw)
-        asyncio.create_task(_memorize(user_id, messages, assistant_text, chat_id))
+        asyncio.create_task(_memorize(user_id, messages_raw or messages, assistant_text, chat_id))
 
 
 # ---------------------------------------------------------------------------

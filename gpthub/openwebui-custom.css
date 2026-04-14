@@ -71,46 +71,138 @@ html.dark, html.dark body { background: #0a0a0b !important; color: #f0f0f0 !impo
 
 /* ── Sidebar (structural — theme-agnostic) ───────────────────────────── */
 
-#sidebar a, #sidebar button,
-div[class*="sidebar"] a,
-div[class*="sidebar"] button {
-  border-radius: 10px !important;
-  transition: background .15s, color .15s !important;
-}
+/* ════════════════════════════════════════════════════════════════════════
+   SIDEBAR — MTS style
+   ════════════════════════════════════════════════════════════════════════ */
 
-/* Sidebar (dark only) */
+/* Shell */
 html.dark #sidebar,
-html.dark [id="sidebar"],
-html.dark div[class*="sidebar"] {
-  background: rgba(10,10,12,.92) !important;
-  backdrop-filter: blur(24px) !important;
-  -webkit-backdrop-filter: blur(24px) !important;
-  border-right: 1px solid rgba(255,255,255,.06) !important;
+html.dark [id="sidebar"] {
+  background: #111113 !important;
+  border-right: 1px solid rgba(255,255,255,.05) !important;
 }
 
-html.dark #sidebar a:hover, html.dark #sidebar button:hover,
-html.dark div[class*="sidebar"] a:hover,
-html.dark div[class*="sidebar"] button:hover {
-  background: rgba(255,255,255,.065) !important;
+/* ── Chat items only: target /c/ links ───────────────────────────────── */
+html.dark #sidebar a[href*="/c/"] {
+  color: rgba(255,255,255,.62) !important;
+  border-radius: 10px !important;
+  font-size: .8rem !important;
+  font-weight: 400 !important;
+  position: relative !important;
+  transition: background .13s, color .13s !important;
+}
+html.dark #sidebar a[href*="/c/"]:hover {
+  background: rgba(255,255,255,.055) !important;
+  color: rgba(255,255,255,.9) !important;
 }
 
-/* Active/selected chat item */
-html.dark #sidebar a[class*="dark:bg-gray-900"],
-html.dark div[class*="sidebar"] a[class*="dark:bg-gray-900"] {
-  background: rgba(227,6,17,.1) !important;
-  border-left: 2px solid rgba(227,6,17,.45) !important;
-  padding-left: 10px !important;
+/* Active chat */
+html.dark #sidebar a[href*="/c/"][class*="dark:bg-gray-900"] {
+  background: rgba(227,6,17,.09) !important;
+  color: rgba(255,255,255,.95) !important;
+  font-weight: 500 !important;
+}
+html.dark #sidebar a[href*="/c/"][class*="dark:bg-gray-900"]::before {
+  content: '' !important;
+  position: absolute !important;
+  left: 0 !important;
+  top: 20% !important;
+  bottom: 20% !important;
+  width: 2px !important;
+  background: #E30611 !important;
+  border-radius: 0 2px 2px 0 !important;
 }
 
-/* Sidebar section label ("Сегодня", "Вчера" …) */
-html.dark #sidebar .sticky, html.dark div[class*="sidebar"] .sticky {
+/* Fade mask — match bg color */
+html.dark #sidebar a[href*="/c/"] .absolute.right-0 {
+  background: linear-gradient(to right, transparent, #111113) !important;
+}
+html.dark #sidebar a[href*="/c/"]:hover .absolute.right-0 {
+  background: linear-gradient(to right, transparent, #1c1c20) !important;
+}
+html.dark #sidebar a[href*="/c/"][class*="dark:bg-gray-900"] .absolute.right-0 {
+  background: linear-gradient(to right, transparent, #1b0c0c) !important;
+}
+
+/* ── Section date labels ("Сегодня", "Вчера" …) ─────────────────────── */
+html.dark #sidebar .sticky {
   background: transparent !important;
-  font-size: .67rem !important;
+  font-size: .6rem !important;
   font-weight: 700 !important;
-  letter-spacing: 1px !important;
+  letter-spacing: 1.4px !important;
   text-transform: uppercase !important;
-  color: rgba(255,255,255,.3) !important;
-  padding: 10px 10px 3px !important;
+  color: rgba(255,255,255,.2) !important;
+  padding: 16px 14px 4px !important;
+}
+
+/* ── "Новый чат" button ──────────────────────────────────────────────── */
+html.dark #new-chat-button {
+  background: rgba(227,6,17,.1) !important;
+  border: 1px solid rgba(227,6,17,.22) !important;
+  border-radius: 12px !important;
+  color: #ff7070 !important;
+  font-weight: 600 !important;
+}
+html.dark #new-chat-button:hover {
+  background: rgba(227,6,17,.19) !important;
+  border-color: rgba(227,6,17,.4) !important;
+  box-shadow: 0 0 12px rgba(227,6,17,.14) !important;
+  color: #ff9090 !important;
+}
+html.dark #new-chat-button svg { color: inherit !important; }
+
+/* ── Bottom nav & other sidebar buttons ──────────────────────────────── */
+html.dark #sidebar button:not(#new-chat-button) {
+  color: rgba(255,255,255,.5) !important;
+  border-radius: 10px !important;
+  transition: background .13s, color .13s !important;
+}
+html.dark #sidebar button:not(#new-chat-button):hover {
+  background: rgba(255,255,255,.055) !important;
+  color: rgba(255,255,255,.82) !important;
+}
+
+/* ── Inline action buttons inside chat items (··· archive delete) ─────── */
+html.dark #sidebar a[href*="/c/"] button {
+  border-radius: 6px !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: rgba(255,255,255,.45) !important;
+  padding: 2px 4px !important;
+}
+html.dark #sidebar a[href*="/c/"] button:hover {
+  background: rgba(255,255,255,.1) !important;
+  color: rgba(255,255,255,.85) !important;
+}
+
+/* ── Search input ────────────────────────────────────────────────────── */
+html.dark #sidebar input {
+  background: rgba(255,255,255,.045) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  border-radius: 10px !important;
+  color: rgba(255,255,255,.72) !important;
+}
+html.dark #sidebar input:focus {
+  border-color: rgba(227,6,17,.38) !important;
+  box-shadow: 0 0 0 2px rgba(227,6,17,.09) !important;
+  outline: none !important;
+}
+
+/* ── Dividers ────────────────────────────────────────────────────────── */
+html.dark #sidebar hr {
+  border-color: rgba(255,255,255,.06) !important;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────── */
+html.dark #sidebar ::-webkit-scrollbar { width: 3px !important; }
+html.dark #sidebar ::-webkit-scrollbar-track { background: transparent !important; }
+html.dark #sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(227,6,17,.2) !important;
+  border-radius: 2px !important;
+}
+html.dark #sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(227,6,17,.45) !important;
 }
 
 /* ── Landing page (new chat) ─────────────────────────────────────────── */

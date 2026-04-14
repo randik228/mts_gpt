@@ -300,15 +300,22 @@ async def extract_facts(messages: list[dict]) -> list[dict]:
     # Only use content (not reasoning_content) — reasoning models put chain-of-thought
     # in reasoning_content which is NOT the actual answer and must not be parsed as facts.
     raw = (msg.content or "").strip()
+    rc = getattr(msg, "reasoning_content", None) or ""
+
+    logger.info("extract_facts: content=%d chars, reasoning=%d chars", len(raw), len(rc))
+    if raw:
+        logger.info("extract_facts: content preview: %s", raw[:200])
+    if rc and not raw:
+        logger.info("extract_facts: reasoning preview: %s", rc[:200])
 
     # If content is empty, try to extract JSON from reasoning_content as last resort
     if not raw:
-        rc = getattr(msg, "reasoning_content", None) or ""
         # Only use reasoning_content if it actually contains a JSON array
         if "[" in rc and "]" in rc:
             raw = rc.strip()
+            logger.info("extract_facts: using reasoning_content as fallback")
         else:
-            logger.debug("extract_facts: model returned empty content, skipping")
+            logger.info("extract_facts: model returned empty content, no JSON in reasoning, skipping")
             return []
 
     # Parse JSON from response (handle markdown fences)
@@ -322,9 +329,7 @@ async def extract_facts(messages: list[dict]) -> list[dict]:
     start = text.find("[")
     end = text.rfind("]")
     if start == -1 or end == -1:
-        # No JSON array found — return empty (do NOT fall back to line-by-line parsing
-        # as that captures reasoning text as fake "facts")
-        logger.debug("extract_facts: no JSON array found in response: %s", text[:100])
+        logger.info("extract_facts: no JSON array found in response: %s", text[:200])
         return []
 
     try:
