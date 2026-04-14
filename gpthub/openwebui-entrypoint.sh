@@ -174,16 +174,21 @@ js = '''<script id=\"gpthub-vars\">(function(){
   new MutationObserver(_qlInject).observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('DOMContentLoaded', _qlInject);
 
-  // ── Memory cleanup on chat deletion ─────────────────────────────────
-  // Intercept fetch to catch DELETE /api/v1/chats/{id} and clean up associated memories
+  // ── Fetch interceptor: changelog suppression + memory cleanup ────────
   var _origFetch = window.fetch;
   window.fetch = function(url, opts) {
+    var urlStr = (typeof url === 'string') ? url : (url && url.url) || '';
+
+    // Block changelog popup — return empty so the modal has nothing to show
+    if (urlStr.indexOf('/api/changelog') !== -1) {
+      return Promise.resolve(new Response('{}', {status:200, headers:{'Content-Type':'application/json'}}));
+    }
+
     var result = _origFetch.apply(this, arguments);
     try {
       var method = (opts && opts.method || 'GET').toUpperCase();
-      var urlStr = (typeof url === 'string') ? url : (url && url.url) || '';
       if (method === 'DELETE') {
-        // Single chat deletion: /api/v1/chats/{uuid}
+        // Memory cleanup on chat deletion
         var m = urlStr.match(/\\/api\\/v1\\/chats\\/([0-9a-f-]{36})$/);
         if (m) {
           var chatId = m[1];
