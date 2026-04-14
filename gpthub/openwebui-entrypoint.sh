@@ -332,6 +332,26 @@ except Exception:
     except Exception as e:
         print('user create failed:', e)
 
+# Fix empty avatars: set Gravatar URL for users with missing profile_image_url
+try:
+    import hashlib as _hl
+    _users_req = urllib.request.Request('http://localhost:8080/api/v1/users/', headers=headers)
+    _users = json.loads(urllib.request.urlopen(_users_req, timeout=3).read())
+    for _u in _users:
+        _img = _u.get('profile_image_url', '')
+        if not _img or _img == '' or _img == '/user.png':
+            _email = _u.get('email', '')
+            _hash = _hl.md5(_email.lower().strip().encode()).hexdigest()
+            _grav = f'https://www.gravatar.com/avatar/{_hash}?d=identicon&s=200'
+            _upd = urllib.request.Request(
+                f"http://localhost:8080/api/v1/users/{_u['id']}/update",
+                data=json.dumps({'name': _u['name'], 'email': _email, 'profile_image_url': _grav}).encode(),
+                headers=headers, method='POST')
+            urllib.request.urlopen(_upd, timeout=3)
+            print(f"set gravatar for {_email}")
+except Exception as e:
+    print(f'avatar fix: {e}')
+
 # Check if filter exists with correct code
 filter_exists = False
 needs_update = True
