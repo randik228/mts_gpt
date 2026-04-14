@@ -1622,6 +1622,18 @@ html:not(.dark) .gpthub-card-view-btn { color: rgba(0,0,0,.45); }
 .gpthub-card-inner.view-slide { width: 560px; }
 .gpthub-card-inner.view-mini  { width: 300px; }
 
+/* Image-only card — height driven by image, no flex-shrink collapse */
+.gpthub-card-inner.gpthub-card-img-only {
+  height: auto !important;
+  overflow: hidden;
+}
+.gpthub-card-inner.gpthub-card-img-only > img {
+  flex-shrink: 0 !important;
+  width: 100% !important;
+  height: auto !important;
+  display: block !important;
+}
+
 /* ── Image (top or side) ──────────────────────────────────────────── */
 .gpthub-ci-img img {
   width: 100%;

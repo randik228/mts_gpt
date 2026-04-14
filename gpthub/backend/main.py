@@ -41,3 +41,24 @@ app.include_router(suggestions.router, prefix="/api/suggestions")
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/imgproxy")
+async def imgproxy(url: str):
+    """Proxy external image to bypass CORS for canvas/download."""
+    import httpx
+    from fastapi import HTTPException
+    from fastapi.responses import Response
+
+    allowed = ("https://imagegen.gpt.mws.ru/", "https://api.gpt.mws.ru/")
+    if not any(url.startswith(d) for d in allowed):
+        raise HTTPException(400, "Domain not allowed")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            raise HTTPException(resp.status_code, "Upstream error")
+        return Response(
+            content=resp.content,
+            media_type=resp.headers.get("content-type", "image/png"),
+        )

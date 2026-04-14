@@ -976,6 +976,7 @@
 
   var CARD_API   = '/api/chat/completions';
   var CARD_MODEL = 'gpt-oss-20b'; // fast model for card generation
+  var IMGPROXY   = window.location.protocol + '//' + window.location.hostname + ':8000/api/imgproxy';
 
   function _getToken() {
     return localStorage.getItem('token') || '';
@@ -1014,7 +1015,7 @@
     return imgs;
   }
 
-  // Call LLM → get card JSON
+  // Call LLM → get card JSON (text only)
   async function _fetchCardData(text, model, token) {
     var prompt =
       'Проанализируй текст и создай карточку с ключевой информацией.\n\n' +
@@ -1081,6 +1082,27 @@
   function _buildInner(cardData, imgSrcs, viewMode) {
     var isMini  = viewMode === 'mini';
     var isSlide = viewMode === 'slide';
+
+    // Image-only mode — red header + photo, no text
+    if (cardData.format === 'image-only') {
+      var imgSrc = cardData._dataUrl || (imgSrcs && imgSrcs[0]) || '';
+      var inner = document.createElement('div');
+      inner.className = 'gpthub-card-inner gpthub-card-img-only' +
+        (isMini ? ' view-mini' : isSlide ? ' view-slide' : ' view-card');
+
+      var hdr = document.createElement('div');
+      hdr.className = 'gpthub-ci-header';
+      hdr.innerHTML = '<span class="gpthub-ci-brand">MTS AI</span>';
+
+      var imgEl = document.createElement('img');
+      imgEl.src = imgSrc;
+      // flex-shrink:0 prevents the image from collapsing inside the flex column
+      imgEl.style.cssText = 'width:100%;height:auto;display:block;flex-shrink:0;border-radius:0 0 14px 14px;';
+
+      inner.appendChild(hdr);
+      inner.appendChild(imgEl);
+      return inner;
+    }
 
     var items = Array.isArray(cardData.content)
       ? cardData.content
@@ -1178,7 +1200,7 @@
       var inner = panel.querySelector('.gpthub-card-inner');
       if (!inner) return;
       _h2c(function () {
-        window.html2canvas(inner, { scale: 2, useCORS: true, logging: false }).then(function (canvas) {
+        window.html2canvas(inner, { scale: 2, useCORS: true, allowTaint: true, logging: false }).then(function (canvas) {
           var a = document.createElement('a');
           a.download = 'mts-ai-card.png';
           a.href = canvas.toDataURL('image/png');
@@ -1192,12 +1214,26 @@
     cpBtn.className = 'gpthub-card-action-btn';
     cpBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Копировать</span>';
     cpBtn.onclick = function () {
-      var body = Array.isArray(cardData.content)
-        ? cardData.content.map(function (s) { return '• ' + s; }).join('\n')
-        : cardData.content;
-      navigator.clipboard.writeText(cardData.title + '\n\n' + body);
-      cpBtn.style.color = '#4ade80';
-      setTimeout(function () { cpBtn.style.color = ''; }, 1500);
+      var inner = panel.querySelector('.gpthub-card-inner');
+      if (!inner) return;
+      _h2c(function () {
+        window.html2canvas(inner, { scale: 2, useCORS: true, allowTaint: true, logging: false }).then(function (canvas) {
+          canvas.toBlob(function (blob) {
+            try {
+              navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+              cpBtn.style.color = '#4ade80';
+              setTimeout(function () { cpBtn.style.color = ''; }, 1500);
+            } catch (e) {
+              var body = Array.isArray(cardData.content)
+                ? cardData.content.map(function (s) { return '• ' + s; }).join('\n')
+                : (cardData.content || '');
+              navigator.clipboard.writeText((cardData.title || 'MTS AI') + '\n\n' + body);
+              cpBtn.style.color = '#4ade80';
+              setTimeout(function () { cpBtn.style.color = ''; }, 1500);
+            }
+          }, 'image/png');
+        });
+      });
     };
 
     // Mailto
@@ -1205,12 +1241,20 @@
     mailBtn.className = 'gpthub-card-action-btn';
     mailBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><span>Отправить</span>';
     mailBtn.onclick = function () {
-      var body = Array.isArray(cardData.content)
-        ? cardData.content.map(function (s) { return '• ' + s; }).join('\n')
-        : cardData.content;
+      var subject, body;
+      if (cardData.format === 'image-only') {
+        subject = 'MTS AI: Изображение';
+        body = '';
+      } else {
+        var bodyText = Array.isArray(cardData.content)
+          ? cardData.content.map(function (s) { return '• ' + s; }).join('\n')
+          : (cardData.content || '');
+        subject = 'MTS AI: ' + (cardData.title || '');
+        body = (cardData.title || '') + '\n\n' + bodyText;
+      }
       window.location.href = 'mailto:?subject=' +
-        encodeURIComponent('MTS AI: ' + cardData.title) +
-        '&body=' + encodeURIComponent(cardData.title + '\n\n' + body);
+        encodeURIComponent(subject) +
+        '&body=' + encodeURIComponent(body);
     };
 
     // Close
@@ -1304,10 +1348,28 @@
           var prose = msgContainer.querySelector('.prose, .markdown, [class*="prose"]');
           var text  = prose ? prose.innerText.trim() : msgContainer.innerText.trim();
           var imgs  = _getMsgImages(msgContainer);
-          var model = _getModel();
-          var token = _getToken();
+          var hasText = text && text.trim().length > 3;
 
-          var cardData = await _fetchCardData(text, model, token);
+          var cardData;
+          if (!hasText && imgs.length > 0) {
+            // Image-only message — fetch via backend proxy to get base64 (bypasses CORS)
+            var dataUrl = imgs[0];
+            try {
+              var proxyUrl = IMGPROXY + '?url=' + encodeURIComponent(imgs[0]);
+              var r = await fetch(proxyUrl);
+              var blob = await r.blob();
+              dataUrl = await new Promise(function(res) {
+                var fr = new FileReader();
+                fr.onload = function() { res(fr.result); };
+                fr.readAsDataURL(blob);
+              });
+            } catch (e) { /* use original URL as fallback */ }
+            cardData = { format: 'image-only', _dataUrl: dataUrl };
+          } else {
+            var model = _getModel();
+            var token = _getToken();
+            cardData = await _fetchCardData(text, model, token);
+          }
           _showPanel(liveBar, cardData, imgs);
         } catch (err) {
           console.error('[GPTHub] Card error:', err);
