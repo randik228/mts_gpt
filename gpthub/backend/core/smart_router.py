@@ -496,6 +496,22 @@ async def route(
     if not text.strip():
         return RoutingDecision("gpt-oss-20b", "empty/no text", "default")
 
+    # 1.5. Context-aware: short regeneration requests in image context
+    _REGEN_RE = re.compile(
+        r"^\s*(перегенерируй|перегенерир|regenerate|заново|ещё раз|еще раз|повтори"
+        r"|переделай|сделай\s*(по\s*)?друг(ому|ое|ой)|давай\s*(по\s*)?друг(ому|ое|ой)"
+        r"|измени|поменяй|другой\s*вариант|другую|другое|другая|попробуй\s*(ещё|еще|снова|опять)"
+        r"|снова|опять|ещё|еще)\s*[.!?]?\s*$",
+        re.I,
+    )
+    if _REGEN_RE.match(text):
+        # Check if conversation history has an image generation result
+        for msg in reversed(messages[:-1]):  # skip last user msg
+            content = msg.get("content", "") or ""
+            if msg.get("role") == "assistant" and "![" in content and ("Сгенерированное изображение" in content or "/files/" not in content):
+                logger.info("Regen in image context → routing to image model")
+                return RoutingDecision("qwen-image-lightning", "image regeneration (context)", "keyword+context")
+
     # 2. Keyword match (fast path) — now returns category, resolved via complexity
     keyword_category = None
     for pattern, category, reason_base in _KEYWORD_RULES:

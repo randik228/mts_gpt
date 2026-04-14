@@ -569,11 +569,17 @@
         pill.style.background = 'rgba(227,6,17,.18)';
         pill.style.borderColor = 'rgba(227,6,17,.45)';
         pill.style.color = '#fff';
+        pill.style.whiteSpace = 'normal';
+        pill.style.overflow = 'visible';
+        pill.style.textOverflow = 'unset';
       };
       pill.onmouseleave = function () {
         pill.style.background = 'rgba(255,255,255,.06)';
         pill.style.borderColor = 'rgba(255,255,255,.10)';
         pill.style.color = '#c8c8c8';
+        pill.style.whiteSpace = 'nowrap';
+        pill.style.overflow = 'hidden';
+        pill.style.textOverflow = 'ellipsis';
       };
       pill.onclick = function (e) {
         e.preventDefault(); e.stopPropagation();

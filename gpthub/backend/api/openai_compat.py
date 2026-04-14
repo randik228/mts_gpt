@@ -816,46 +816,27 @@ async def _inject_url_context(messages: list[dict]) -> list[dict]:
 
 import re as _re_img
 
-# Pattern to extract prompt from <details><summary>Промпт</summary>..prompt..</details>
-_IMG_PROMPT_RE = _re_img.compile(
-    r"<details>\s*<summary>Промпт</summary>\s*\n*(.*?)\n*\s*</details>",
-    _re_img.DOTALL,
-)
-
-# Pattern to detect image generation keywords in user messages
-_IMG_KW_RE = _re_img.compile(
-    r"(нарисуй|сгенерируй|создай\s+изображение|draw|generate\s+image|imagine)",
-    _re_img.I,
-)
-
-
 def _extract_prev_image_prompt(messages: list[dict]) -> str | None:
     """
-    Look through conversation history for the most recent image generation result.
-    First tries to extract the prompt from a <details>Промпт</details> block
-    in an assistant message. Falls back to finding the most recent user message
-    with image-generation keywords.
-    Returns the prompt text, or None if no previous image found.
+    Find the user prompt that produced the most recent generated image.
+    Walks history backwards looking for an assistant message with
+    ![Сгенерированное изображение], then returns the user message
+    immediately before it — that's the original image prompt.
     """
-    # Strategy 1: Find prompt in assistant's <details> block (most reliable)
-    for msg in reversed(messages):
-        if msg.get("role") == "assistant":
-            content = msg.get("content", "") or ""
-            m = _IMG_PROMPT_RE.search(content)
-            if m:
-                return m.group(1).strip()
-
-    # Strategy 2: Find previous user message with image keywords
-    found_current = False
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            if not found_current:
-                found_current = True
-                continue
-            content = msg.get("content", "")
-            text = content if isinstance(content, str) else str(content)
-            if _IMG_KW_RE.search(text):
-                return text
+    # Walk backwards, find last assistant message with generated image
+    for i in range(len(messages) - 1, -1, -1):
+        msg = messages[i]
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content", "") or ""
+        if "Сгенерированное изображение" not in content:
+            continue
+        # Found it — now find the user message right before
+        for j in range(i - 1, -1, -1):
+            if messages[j].get("role") == "user":
+                user_content = messages[j].get("content", "")
+                text = user_content if isinstance(user_content, str) else str(user_content)
+                return text.strip()
     return None
 
 
@@ -888,25 +869,30 @@ async def _handle_image_generation(
             break
 
     # --- Inject previous image context for follow-ups ---
-    # If conversation has assistant messages with image markdown, extract the
-    # original prompt so user can say "make it brighter" and we re-generate
-    # with a modified combined prompt.
+    # If conversation has a previously generated image, check if the current
+    # request is a simple regen ("переделай") or a modification ("сделай ярче").
     prev_prompt = _extract_prev_image_prompt(messages)
     if prev_prompt and prev_prompt != prompt:
-        prompt = (
-            f"Предыдущее изображение было сгенерировано по запросу: \"{prev_prompt}\". "
-            f"Пользователь хочет изменить его: {prompt}"
+        # Check if the user just wants to regenerate (no specific details)
+        _is_simple_regen = _re_img.match(
+            r"^\s*(перегенерируй|перегенерир\w*|regenerate|заново|ещё раз|еще раз"
+            r"|повтори|переделай|сделай\s*(по\s*)?друг\w*|давай\s*(по\s*)?друг\w*"
+            r"|другой\s*вариант|другую|другое|другая|попробуй\s*(ещё|еще|снова|опять)"
+            r"|снова|опять|ещё|еще)\s*[.!?]?\s*$",
+            prompt, _re_img.I,
         )
-        logger.info("Image follow-up: combined prompt = %s", prompt[:120])
+        if _is_simple_regen:
+            # Just re-use the original prompt as-is
+            prompt = prev_prompt
+            logger.info("Image simple regen: reusing original prompt = %s", prompt[:120])
+        else:
+            # User wants a modification — combine prompts
+            prompt = f"{prev_prompt}, {prompt}"
+            logger.info("Image follow-up: combined prompt = %s", prompt[:120])
 
-    # Store the clean prompt for description (before sending to API)
-    _clean_prompt = prompt
-
+    t0 = time.time()
     try:
         result = await mws_client.generate_image(prompt, model=model)
-        # Append a hidden description so follow-up messages can reference it
-        # This appears as small text under the image in the chat
-        result += f"\n\n<details><summary>Промпт</summary>\n\n{_clean_prompt}\n\n</details>"
     except Exception as e:
         logger.warning("Image generation failed: %s", e)
         result = (
@@ -914,6 +900,12 @@ async def _handle_image_generation(
             f"Модель `{model}` не поддерживает генерацию через текущий API.\n"
             f"Ошибка: {e}"
         )
+
+    latency_ms = (time.time() - t0) * 1000
+    asyncio.create_task(_record_analytics(
+        user_id=user_id, requested=req.model, routed_to=model,
+        method=routing_method, reason=routing_reason, latency_ms=latency_ms,
+    ))
 
     hdrs = {
         "X-GPTHub-Model": model,
@@ -994,6 +986,7 @@ async def _handle_presentation_generation(
         "X-GPTHub-Routing-Reason": routing_reason,
     }
 
+    t0 = time.time()
     try:
         completion = await mws_client.chat_complete(
             model=model,
@@ -1010,7 +1003,7 @@ async def _handle_presentation_generation(
         # Build response with download link
         result = (
             f"Презентация **\"{title}\"** готова! ({len(slides)} слайдов)\n\n"
-            f"[📥 Скачать презентацию (.pptx)](http://localhost:8000/files/{filename})\n\n"
+            f"[📥 Скачать «{title}» (.pptx)](http://localhost:8000/files/{filename})\n\n"
             f"### Содержание:\n"
         )
         for i, s in enumerate(slides, 1):
@@ -1023,6 +1016,12 @@ async def _handle_presentation_generation(
             f"Ошибка: {e}\n\n"
             f"Попробуйте переформулировать запрос."
         )
+
+    latency_ms = (time.time() - t0) * 1000
+    asyncio.create_task(_record_analytics(
+        user_id=user_id, requested=req.model, routed_to=model,
+        method=routing_method, reason=routing_reason, latency_ms=latency_ms,
+    ))
 
     if stream:
         async def _pptx_stream():

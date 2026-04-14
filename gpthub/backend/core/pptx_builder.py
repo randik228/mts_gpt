@@ -158,8 +158,13 @@ def generate_pptx(title: str, slides: list[dict]) -> str:
         if notes:
             sl.notes_slide.notes_text_frame.text = notes
 
-    # Save
-    filename = f"{uuid.uuid4().hex[:12]}.pptx"
+    # Save — use slugified title for readable filename
+    import re as _re
+    safe = _re.sub(r'[^\w\s-]', '', title or 'presentation').strip()
+    safe = _re.sub(r'[\s_]+', '_', safe)[:60]
+    if not safe:
+        safe = 'presentation'
+    filename = f"{safe}_{uuid.uuid4().hex[:6]}.pptx"
     filepath = FILES_DIR / filename
     prs.save(str(filepath))
     logger.info("PPTX generated: %s (%d slides)", filepath, len(slides))
