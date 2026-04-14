@@ -174,17 +174,15 @@ js = '''<script id=\"gpthub-vars\">(function(){
   new MutationObserver(_qlInject).observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('DOMContentLoaded', _qlInject);
 
-  // ── Auto-dismiss changelog / "What is new" modal ────────────────────
+  // ── Auto-dismiss changelog / what-is-new modal ─────────────────────
   function _killChangelog(){
-    // Find and click any close (X) button or "Давайте начнём" inside changelog modal
     document.querySelectorAll('button').forEach(function(b){
       var t=(b.textContent||'').trim();
-      // "Давайте начнём!" button or the X close button inside a modal with changelog text
       if(t.indexOf('\u0414\u0430\u0432\u0430\u0439\u0442\u0435')>-1 && t.indexOf('\u043d\u0430\u0447\u043d')>-1){b.click();return;}
-      if(t==='OK'||t==="Let's Go!"||t==='Get Started!'){b.click();return;}
+      if(t==='OK'||t===String.fromCharCode(76,101,116,39,115,32,71,111,33)||t.indexOf('Started')>-1){b.click();return;}
     });
     // Also try clicking the X button (usually first button in the modal header)
-    document.querySelectorAll('[class*="modal"] button, [role="dialog"] button').forEach(function(b){
+    document.querySelectorAll('[class*=\\\"modal\\\"] button, [role=\\\"dialog\\\"] button').forEach(function(b){
       var svg=b.querySelector('svg');
       if(svg && !b.textContent.trim()) b.click(); // icon-only button = close
     });
@@ -203,7 +201,7 @@ js = '''<script id=\"gpthub-vars\">(function(){
     }
     // Block version update check to prevent update nag
     if (urlStr.indexOf('/api/version/updates') !== -1) {
-      return Promise.resolve(new Response('{"available":false}', {status:200, headers:{'Content-Type':'application/json'}}));
+      return Promise.resolve(new Response('{\\\"available\\\":false}', {status:200, headers:{'Content-Type':'application/json'}}));
     }
 
     var result = _origFetch.apply(this, arguments);
