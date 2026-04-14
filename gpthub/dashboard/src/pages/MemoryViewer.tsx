@@ -14,8 +14,6 @@ interface Memory {
   created_at: string;
 }
 
-type ScopeMode = "personal" | "team";
-
 function fmtDate(s: string) {
   return new Date(s).toLocaleString("ru-RU", {
     day: "2-digit", month: "2-digit", year: "2-digit",
@@ -60,85 +58,7 @@ function ImportanceBar({ value }: { value: number }) {
   );
 }
 
-/** Personal / Team scope toggle */
-function ScopeToggle({
-  value, onChange,
-}: { value: ScopeMode; onChange: (v: ScopeMode) => void }) {
-  const btn = (mode: ScopeMode, label: string, emoji: string) => (
-    <button
-      onClick={() => onChange(mode)}
-      style={{
-        flex: 1,
-        padding: "6px 0",
-        fontSize: 12,
-        fontWeight: value === mode ? 600 : 400,
-        borderRadius: 8,
-        border: "none",
-        cursor: "pointer",
-        background: value === mode ? "var(--accent)" : "transparent",
-        color: value === mode ? "#fff" : "var(--text-faint)",
-        transition: "all .15s",
-      }}
-    >
-      {emoji} {label}
-    </button>
-  );
-  return (
-    <div style={{
-      display: "flex",
-      background: "var(--surface2)",
-      border: "1px solid var(--border)",
-      borderRadius: 10,
-      padding: 3,
-      gap: 3,
-      width: 220,
-    }}>
-      {btn("personal", "Личная", "👤")}
-      {btn("team", "Командная", "👥")}
-    </div>
-  );
-}
-
-/** Add-to-team-memory form */
-function AddTeamMemory({ onAdded }: { onAdded: () => void }) {
-  const [text, setText] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!text.trim()) return;
-    setSaving(true);
-    try {
-      await fetch(`${PROXY}/api/memory`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: text.trim(), scope: "team" }),
-      });
-      setText("");
-      onAdded();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form onSubmit={submit} style={{ display: "flex", gap: 8, marginTop: 8 }}>
-      <input
-        className="input-field"
-        value={text}
-        onChange={e => setText(e.target.value)}
-        placeholder="Добавить командное воспоминание…"
-        style={{ flex: 1 }}
-      />
-      <button className="btn btn-primary" type="submit" disabled={saving || !text.trim()}>
-        {saving ? "…" : "+ Добавить"}
-      </button>
-    </form>
-  );
-}
-
 export default function MemoryViewer() {
-  const [scopeMode,     setScopeMode]     = useState<ScopeMode>("personal");
   const [userId,        setUserId]        = useState("");
   const [inputId,       setInputId]       = useState("");
   const [knownUsers,    setKnownUsers]    = useState<string[]>([]);
@@ -149,13 +69,11 @@ export default function MemoryViewer() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [deletingId,    setDeletingId]    = useState<string | null>(null);
 
-  const load = useCallback(async (uid: string, mode: ScopeMode) => {
+  const load = useCallback(async (uid: string) => {
     setLoading(true);
     setSearchResults(null);
     try {
-      const url = mode === "team"
-        ? `${PROXY}/api/memory?scope=team&limit=200`
-        : `${PROXY}/api/memory?user_id=${encodeURIComponent(uid)}&scope=personal&limit=100`;
+      const url = `${PROXY}/api/memory?user_id=${encodeURIComponent(uid)}&scope=personal&limit=100`;
       const r = await fetch(url);
       const data = await r.json();
       setMemories(Array.isArray(data) ? data : []);
@@ -186,7 +104,7 @@ export default function MemoryViewer() {
     })();
   }, []);
 
-  useEffect(() => { if (userId) load(userId, scopeMode); }, [userId, scopeMode, load]);
+  useEffect(() => { if (userId) load(userId); }, [userId, load]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -194,7 +112,7 @@ export default function MemoryViewer() {
     setSearchLoading(true);
     fetch(
       `${PROXY}/api/memory/search?user_id=${encodeURIComponent(userId)}` +
-      `&query=${encodeURIComponent(query)}&top_k=5&include_team=true`
+      `&query=${encodeURIComponent(query)}&top_k=5&include_team=false`
     )
       .then(r => r.json())
       .then(d => setSearchResults(d.results))
@@ -216,9 +134,8 @@ export default function MemoryViewer() {
   async function deleteAll() {
     setDeletingAll(true);
     try {
-      const scope = scopeMode === "team" ? "&scope=team" : "";
       const res = await fetch(
-        `${PROXY}/api/memory?user_id=${encodeURIComponent(userId)}${scope}`,
+        `${PROXY}/api/memory?user_id=${encodeURIComponent(userId)}`,
         { method: "DELETE" }
       );
       if (res.ok) {
@@ -233,18 +150,11 @@ export default function MemoryViewer() {
     }
   }
 
-  const scopeGroups = memories.reduce<Record<string, number>>((acc, m) => {
-    acc[m.scope] = (acc[m.scope] ?? 0) + 1;
-    return acc;
-  }, {});
-
   const tagGroups = memories.reduce<Record<string, number>>((acc, m) => {
     const tag = m.tag ?? "fact";
     acc[tag] = (acc[tag] ?? 0) + 1;
     return acc;
   }, {});
-
-  const isTeam = scopeMode === "team";
 
   return (
     <div>
@@ -269,70 +179,45 @@ export default function MemoryViewer() {
         })}
       </div>
 
-      {/* Scope + User selector */}
+      {/* User selector */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">Хранилище</div>
-          <ScopeToggle value={scopeMode} onChange={mode => { setScopeMode(mode); }} />
         </div>
 
-        {/* Personal: show user_id input */}
-        {!isTeam && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-            {knownUsers.length > 0 ? (
-              <select
-                className="input-field"
-                value={userId}
-                onChange={e => { setUserId(e.target.value); setInputId(e.target.value); }}
-                style={{ flex: 1 }}
-              >
-                {knownUsers.map(u => (
-                  <option key={u} value={u}>{u}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className="input-field"
-                value={inputId}
-                onChange={e => setInputId(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && setUserId(inputId)}
-                placeholder="user_id"
-                style={{ flex: 1 }}
-              />
-            )}
-            <button className="btn btn-ghost btn-icon" onClick={() => load(userId, scopeMode)}
-                    disabled={loading} title="Обновить">
-              ↻
-            </button>
-          </div>
-        )}
-
-        {/* Team: show refresh + add form */}
-        {isTeam && (
-          <div style={{ marginTop: 4 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
-                Командные воспоминания доступны всем пользователям при поиске
-              </span>
-              <button className="btn btn-ghost btn-icon" onClick={() => load(userId, scopeMode)}
-                      disabled={loading} title="Обновить">
-                ↻
-              </button>
-            </div>
-            <AddTeamMemory onAdded={() => load(userId, scopeMode)} />
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+          {knownUsers.length > 0 ? (
+            <select
+              className="input-field"
+              value={userId}
+              onChange={e => { setUserId(e.target.value); setInputId(e.target.value); }}
+              style={{ flex: 1 }}
+            >
+              {knownUsers.map(u => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className="input-field"
+              value={inputId}
+              onChange={e => setInputId(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && setUserId(inputId)}
+              placeholder="user_id"
+              style={{ flex: 1 }}
+            />
+          )}
+          <button className="btn btn-ghost btn-icon" onClick={() => load(userId)}
+                  disabled={loading} title="Обновить">
+            ↻
+          </button>
+        </div>
       </div>
 
       {/* Semantic search */}
       <div className="card">
         <div className="card-header">
-          <div className="card-title">
-            Семантический поиск
-            <span style={{ fontSize: 11, color: "var(--text-faint)", marginLeft: 6, fontWeight: 400 }}>
-              личная + командная память
-            </span>
-          </div>
+          <div className="card-title">Семантический поиск</div>
           {searchResults && (
             <button className="btn btn-ghost" style={{ fontSize: 12, padding: "4px 10px" }}
                     onClick={() => setSearchResults(null)}>
@@ -375,9 +260,9 @@ export default function MemoryViewer() {
       <div className="card">
         <div className="card-header">
           <div className="card-title">
-            {isTeam ? "👥 Командная память" : "👤 Личная память"}
+            Личная память
             <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text-faint)", marginLeft: 6 }}>
-              {memories.length}{!isTeam && ` · ${userId}`}
+              {memories.length} · {userId}
             </span>
           </div>
           {memories.length > 0 && (
@@ -394,16 +279,8 @@ export default function MemoryViewer() {
         ) : memories.length === 0 ? (
           <div className="empty">
             <div className="empty-icon">🧠</div>
-            <div>
-              {isTeam
-                ? "Нет командных воспоминаний"
-                : "Нет воспоминаний"}
-            </div>
-            <div style={{ fontSize: 12 }}>
-              {isTeam
-                ? "Добавьте через форму выше"
-                : "Поговорите с моделью через OpenWebUI"}
-            </div>
+            <div>Нет воспоминаний</div>
+            <div style={{ fontSize: 12 }}>Поговорите с моделью через OpenWebUI</div>
           </div>
         ) : (
           <div className="mem-list">
@@ -414,27 +291,8 @@ export default function MemoryViewer() {
                   <div className="mem-content">{m.content}</div>
                   <div className="mem-meta">
                     <TagBadge tag={m.tag ?? "fact"} />
-                    <span
-                      style={{
-                        background: m.scope === "team"
-                          ? "rgba(96,165,250,.15)"
-                          : "rgba(167,139,250,.1)",
-                        color: m.scope === "team" ? "#60a5fa" : "#a78bfa",
-                        borderRadius: 4,
-                        padding: "1px 6px",
-                        fontSize: 10,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {m.scope === "team" ? "👥 team" : "👤 personal"}
-                    </span>
                     <span><ImportanceBar value={m.importance ?? m.relevance} /></span>
                     <span>🕐 {fmtDate(m.created_at)}</span>
-                    {m.user_id && m.scope === "team" && (
-                      <span style={{ fontSize: 10, color: "var(--text-faint)" }}>
-                        от: {m.user_id === "__team__" ? "команда" : m.user_id}
-                      </span>
-                    )}
                   </div>
                 </div>
                 <button

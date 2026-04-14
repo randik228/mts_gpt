@@ -1424,56 +1424,7 @@ html:not(.dark) .cm-gutters .cm-gutterElement {
   display: none !important;
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   OBSERVABILITY BADGE — model/routing info under AI responses
-   ══════════════════════════════════════════════════════════════════════ */
-
-.gpthub-obs-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin: 6px 0 2px 0;
-  padding: 3px 8px;
-  border-radius: 20px;
-  font-size: 10px;
-  font-weight: 500;
-  opacity: 0.55;
-  transition: opacity 0.2s ease;
-  cursor: default;
-  user-select: none;
-}
-.gpthub-obs-badge:hover { opacity: 1; }
-
-html.dark .gpthub-obs-badge {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.6);
-}
-html:not(.dark) .gpthub-obs-badge {
-  background: rgba(0,0,0,0.04);
-  border: 1px solid rgba(0,0,0,0.08);
-  color: rgba(0,0,0,0.45);
-}
-
-.gpthub-obs-icon { font-size: 11px; }
-.gpthub-obs-model { font-weight: 600; }
-.gpthub-obs-reason {
-  padding: 1px 5px;
-  border-radius: 10px;
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-}
-html.dark .gpthub-obs-reason {
-  background: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.4);
-}
-html:not(.dark) .gpthub-obs-reason {
-  background: rgba(0,0,0,0.06);
-  color: rgba(0,0,0,0.35);
-}
-.gpthub-obs-mem { color: #4ade80; font-size: 9px; }
+/* OBSERVABILITY BADGE — removed */
 
 /* ══════════════════════════════════════════════════════════════════════
    TOOL TOOLBAR — manual tool selection
