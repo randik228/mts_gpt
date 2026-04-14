@@ -60,9 +60,13 @@ _HIDDEN_MODELS = {
 async def list_models():
     """
     Returns virtual routing aliases first, then chat-capable real MWS models.
+    Tool-forcing aliases (auto-search, auto-image, etc.) are included so OpenWebUI
+    accepts them as valid model IDs (used by the frontend toolbar).
     Non-chat models (embeddings, audio, image-gen) are hidden from the dropdown.
     """
+    from core.model_registry import TOOL_ALIASES
     entries = [_model_object(m) for m in VIRTUAL_MODELS]
+    entries += [_model_object(m) for m in TOOL_ALIASES]     # toolbar aliases
     entries += [_model_object(m) for m in MODELS if m not in _HIDDEN_MODELS]
     return {"object": "list", "data": entries}
 
@@ -152,10 +156,19 @@ async def chat_completions(request: Request):
         messages_raw = await transcribe_audio_from_message(messages_raw)
         has_audio = False  # audio replaced with text, re-route as text
 
-    is_auto = req.model == "auto"
-    virtual_hint = req.model if req.model in _VIRTUAL_MAP and not is_auto else None
+    # --- Tool-forcing aliases from frontend toolbar (auto-search, auto-image, etc.) ---
+    from core.model_registry import TOOL_ALIASES
+    _force_tool = req.model if req.model in TOOL_ALIASES else None
 
-    if is_auto or req.model in _VIRTUAL_MAP:
+    is_auto = req.model == "auto"
+    virtual_hint = req.model if req.model in _VIRTUAL_MAP and not is_auto and not _force_tool else None
+
+    if _force_tool:
+        # Forced tool: routing method is "manual"
+        real_model = _VIRTUAL_MAP.get(req.model, "gpt-oss-120b")
+        routing_reason = f"manual tool: {req.model}"
+        routing_method = "manual"
+    elif is_auto or req.model in _VIRTUAL_MAP:
         decision: RoutingDecision = await smart_route(
             messages_raw,
             has_image=has_image,
@@ -191,10 +204,11 @@ async def chat_completions(request: Request):
     # Skip memory for OpenWebUI internal system requests (title/tag generation etc.)
     # Also treat requests without a user as system requests (OpenWebUI title/tag gen)
     _is_system_request = _detect_system_request(messages_raw) or user_id == "default"
-    messages_with_mem = (
-        messages_raw if _is_system_request
-        else await _inject_memories(messages_raw, user_id)
-    )
+    _memory_count = 0
+    if _is_system_request:
+        messages_with_mem = messages_raw
+    else:
+        messages_with_mem, _memory_count = await _inject_memories_counted(messages_raw, user_id)
 
     # --- URL fetch inject (when user pastes a URL in message) ---
     if not _is_system_request:
@@ -204,19 +218,28 @@ async def chat_completions(request: Request):
     if not _is_system_request:
         messages_with_mem = _inject_core_system_prompt(messages_with_mem)
 
-    # --- Image generation special handling ---
-    if real_model in ("qwen-image-lightning", "qwen-image"):
+    # --- Force-tool special handlers ---
+    if _force_tool == "auto-image" or real_model in ("qwen-image-lightning", "qwen-image"):
         return await _handle_image_generation(
             req, messages_raw, real_model, routing_method, routing_reason, user_id,
-            stream=req.stream,
+            stream=req.stream, memory_count=_memory_count,
         )
 
-    # --- Presentation generation special handling ---
-    if routing_reason == "presentation generation request":
+    if _force_tool == "auto-presentation" or routing_reason == "presentation generation request":
         return await _handle_presentation_generation(
             req, messages_raw, real_model, routing_method, routing_reason, user_id,
-            stream=req.stream,
+            stream=req.stream, memory_count=_memory_count,
         )
+
+    if _force_tool == "auto-research":
+        return await _handle_deep_research(
+            req, messages_raw, real_model, routing_method, routing_reason, user_id,
+            stream=req.stream, memory_count=_memory_count,
+        )
+
+    if _force_tool == "auto-search":
+        # Force web search enrichment
+        routing_reason = "forced web search"
 
     # --- Reasoning system prompt inject ---
     messages_final = _inject_reasoning_prompt(real_model, messages_with_mem)
@@ -238,6 +261,7 @@ async def chat_completions(request: Request):
                 "X-GPTHub-Requested-Model": req.model,
                 "X-GPTHub-Routing-Method": routing_method,
                 "X-GPTHub-Routing-Reason": routing_reason,
+                "X-GPTHub-Memory-Count": str(_memory_count),
                 "Cache-Control": "no-cache",
             },
         )
@@ -279,6 +303,7 @@ async def chat_completions(request: Request):
             "X-GPTHub-Requested-Model": req.model,
             "X-GPTHub-Routing-Method": routing_method,
             "X-GPTHub-Routing-Reason": routing_reason,
+            "X-GPTHub-Memory-Count": str(_memory_count),
         })
 
     latency_ms = (time.time() - t0) * 1000
@@ -330,6 +355,7 @@ async def chat_completions(request: Request):
         "X-GPTHub-Requested-Model": req.model,
         "X-GPTHub-Routing-Method": routing_method,
         "X-GPTHub-Routing-Reason": routing_reason,
+        "X-GPTHub-Memory-Count": str(_memory_count),
     })
 
 
@@ -547,9 +573,15 @@ def _detect_system_request(messages: list[dict]) -> bool:
 # ---------------------------------------------------------------------------
 
 async def _inject_memories(messages: list[dict], user_id: str) -> list[dict]:
+    """Legacy wrapper — returns only messages."""
+    result, _ = await _inject_memories_counted(messages, user_id)
+    return result
+
+
+async def _inject_memories_counted(messages: list[dict], user_id: str) -> tuple[list[dict], int]:
     """
     Search for relevant memories and prepend them to the system prompt.
-    Returns a new messages list; original is not mutated.
+    Returns (new_messages, memory_count). Original messages not mutated.
     """
     try:
         manager = await get_manager()
@@ -557,10 +589,10 @@ async def _inject_memories(messages: list[dict], user_id: str) -> list[dict]:
         memories = await manager.search_memories(user_id, query, top_k=5, min_score=0.30)
     except Exception:
         logger.warning("Memory inject failed, continuing without memories", exc_info=True)
-        return messages
+        return messages, 0
 
     if not memories:
-        return messages
+        return messages, 0
 
     mem_block = (
         "Контекст о пользователе (используй естественно, НЕ упоминай что у тебя есть память/заметки):\n"
@@ -576,7 +608,7 @@ async def _inject_memories(messages: list[dict], user_id: str) -> list[dict]:
         result.insert(0, {"role": "system", "content": mem_block})
 
     logger.info("Injected %d memories for user=%s: %s", len(memories), user_id, [m[:40] for m in memories])
-    return result
+    return result, len(memories)
 
 
 async def _memorize(user_id: str, messages: list[dict], assistant_reply: str, source_chat: str | None = None) -> None:
@@ -849,6 +881,7 @@ async def _handle_image_generation(
     user_id: str,
     *,
     stream: bool = False,
+    memory_count: int = 0,
 ) -> JSONResponse | StreamingResponse:
     """
     Handle image generation requests.
@@ -912,6 +945,7 @@ async def _handle_image_generation(
         "X-GPTHub-Requested-Model": req.model,
         "X-GPTHub-Routing-Method": routing_method,
         "X-GPTHub-Routing-Reason": routing_reason,
+        "X-GPTHub-Memory-Count": str(memory_count),
     }
 
     if stream:
@@ -970,6 +1004,7 @@ async def _handle_presentation_generation(
     user_id: str,
     *,
     stream: bool = False,
+    memory_count: int = 0,
 ) -> JSONResponse | StreamingResponse:
     """Generate a PPTX presentation via LLM + python-pptx."""
 
@@ -984,6 +1019,7 @@ async def _handle_presentation_generation(
         "X-GPTHub-Requested-Model": req.model,
         "X-GPTHub-Routing-Method": routing_method,
         "X-GPTHub-Routing-Reason": routing_reason,
+        "X-GPTHub-Memory-Count": str(memory_count),
     }
 
     t0 = time.time()
@@ -1048,6 +1084,210 @@ async def _handle_presentation_generation(
             "message": {"role": "assistant", "content": result},
             "finish_reason": "stop",
         }],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }, headers=hdrs)
+
+
+# ---------------------------------------------------------------------------
+# Deep Research handler — multi-step web search + LLM synthesis
+# ---------------------------------------------------------------------------
+
+async def _handle_deep_research(
+    req: "ChatRequest",
+    messages: list[dict],
+    model: str,
+    routing_method: str,
+    routing_reason: str,
+    user_id: str,
+    *,
+    stream: bool = False,
+    memory_count: int = 0,
+) -> JSONResponse | StreamingResponse:
+    """
+    Deep Research: generates sub-queries, searches web, fetches pages,
+    synthesizes into a comprehensive report. Streams progress to UI.
+    """
+    hdrs = {
+        "X-GPTHub-Model": model,
+        "X-GPTHub-Requested-Model": req.model,
+        "X-GPTHub-Routing-Method": routing_method,
+        "X-GPTHub-Routing-Reason": routing_reason,
+        "X-GPTHub-Memory-Count": str(memory_count),
+    }
+
+    query = _last_user_text(messages).strip()
+    t0 = time.time()
+
+    async def _research_gen():
+        """SSE generator that streams research progress and final report."""
+
+        def _chunk(text: str) -> bytes:
+            c = _make_delta_chunk(model, "research", text)
+            c["choices"][0]["finish_reason"] = None
+            return f"data: {json.dumps(c, ensure_ascii=False)}\n\n".encode()
+
+        def _done() -> bytes:
+            c = _make_delta_chunk(model, "research-done", "")
+            c["choices"][0]["finish_reason"] = "stop"
+            return f"data: {json.dumps(c, ensure_ascii=False)}\n\n".encode()
+
+        try:
+            # Step 1: Generate sub-queries via LLM
+            yield _chunk("🔬 **Deep Research** запущен...\n\n")
+            yield _chunk("📋 Формирую план исследования...\n")
+
+            import re as _re_lang
+            _has_cyrillic = bool(_re_lang.search(r'[а-яёА-ЯЁ]', query))
+            _has_latin    = bool(_re_lang.search(r'[a-zA-Z]', query))
+            if _has_cyrillic:
+                _sq_lang = "Запросы пиши СТРОГО НА РУССКОМ языке."
+            elif _has_latin:
+                _sq_lang = "Write queries STRICTLY IN ENGLISH."
+            else:
+                _sq_lang = "Use the same language as the user query."
+
+            subquery_prompt = f"""Пользователь хочет исследовать тему: "{query}"
+
+Сгенерируй 3 конкретных поисковых запроса для разностороннего изучения темы.
+Формат ответа — строго JSON-массив строк, например:
+["запрос 1", "запрос 2", "запрос 3"]
+
+Запросы должны дополнять друг друга и охватывать разные аспекты темы.
+{_sq_lang} Не используй китайские или другие иностранные символы."""
+
+            try:
+                sq_completion = await mws_client.chat_complete(
+                    model="gpt-oss-20b",
+                    messages=[{"role": "user", "content": subquery_prompt}],
+                    temperature=0.5, max_tokens=256,
+                )
+                sq_raw = sq_completion.choices[0].message.content or ""
+                import re as _re_sq
+                sq_match = _re_sq.search(r'\[.*?\]', sq_raw, _re_sq.DOTALL)
+                import json as _json_sq
+                sub_queries = _json_sq.loads(sq_match.group()) if sq_match else [query]
+                sub_queries = sub_queries[:3]
+            except Exception:
+                sub_queries = [query]
+
+            # Step 2: Search + fetch for each sub-query
+            all_context: list[str] = []
+            for i, sq in enumerate(sub_queries, 1):
+                yield _chunk(f"\n🔍 **Поиск {i}/{len(sub_queries)}:** {sq}\n")
+                try:
+                    results = await web_search(sq, max_results=3)
+                    if results:
+                        yield _chunk(f"   ✓ Найдено {len(results)} источников\n")
+                        for r in results[:2]:
+                            url = r.get("url", "")
+                            title = r.get("title", "")
+                            snippet = r.get("snippet", "")
+                            if snippet:
+                                all_context.append(f"**{title}**\n{snippet}\nИсточник: {url}")
+                            if url:
+                                try:
+                                    yield _chunk(f"   📄 Читаю: {title[:50]}...\n")
+                                    page = await fetch_page(url, max_chars=2500)
+                                    if page and not page.startswith("[Ошибка"):
+                                        all_context.append(f"Содержимое [{title}]({url}):\n{page}")
+                                except Exception:
+                                    pass
+                    else:
+                        yield _chunk(f"   ⚠️ Нет результатов\n")
+                except Exception as e:
+                    yield _chunk(f"   ⚠️ Ошибка поиска: {e}\n")
+
+            if not all_context:
+                yield _chunk("\n⚠️ Не удалось собрать данные. Отвечаю без веб-поиска.\n\n")
+                all_context = []
+
+            # Step 3: Synthesize
+            yield _chunk(f"\n✍️ **Синтезирую результаты** ({len(all_context)} фрагментов)...\n\n---\n\n")
+
+            # Detect query language to enforce it explicitly in the synthesis prompt
+            import re as _re_lang
+            _has_cyrillic = bool(_re_lang.search(r'[а-яёА-ЯЁ]', query))
+            _has_latin    = bool(_re_lang.search(r'[a-zA-Z]', query))
+            if _has_cyrillic:
+                _lang_instruction = (
+                    "ВАЖНО: Весь ответ ТОЛЬКО на русском языке. "
+                    "Запрещено использовать китайские, японские, арабские или любые другие символы. "
+                    "Если источники на другом языке — переводи на русский."
+                )
+                _lang_reminder = "Напиши отчёт СТРОГО НА РУССКОМ ЯЗЫКЕ. Никаких иностранных слов кроме имён собственных и терминов."
+            elif _has_latin:
+                _lang_instruction = (
+                    "IMPORTANT: Respond ONLY in English. "
+                    "Do not use Chinese, Japanese, Arabic or any other script. "
+                    "Translate source material to English if needed."
+                )
+                _lang_reminder = "Write the report STRICTLY IN ENGLISH."
+            else:
+                _lang_instruction = "Отвечай на том же языке что и запрос."
+                _lang_reminder = ""
+
+            context_text = "\n\n---\n\n".join(all_context[:8])  # limit context
+            synth_messages = [
+                {"role": "system", "content": (
+                    f"Ты эксперт-исследователь. {_lang_instruction} "
+                    "Используй предоставленные материалы для создания полного структурированного отчёта. "
+                    "Указывай источники. Структурируй ответ с заголовками и выводами."
+                )},
+                {"role": "user", "content": (
+                    f"Тема исследования: {query}\n\n"
+                    f"Собранные материалы:\n{context_text}\n\n"
+                    f"Напиши подробный структурированный отчёт с заголовками, ключевыми выводами и ссылками на источники. "
+                    f"{_lang_reminder}"
+                )},
+            ]
+
+            async for chunk in mws_client.chat_stream(
+                model=model,
+                messages=synth_messages,
+                temperature=0.3,   # lower temp → less creative/hallucinated language mixing
+                max_tokens=4096,
+            ):
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield _chunk(delta.content)
+
+            latency_ms = (time.time() - t0) * 1000
+            asyncio.create_task(_record_analytics(
+                user_id=user_id, requested=req.model, routed_to=model,
+                method=routing_method, reason="deep research", latency_ms=latency_ms,
+            ))
+
+        except Exception as e:
+            logger.warning("Deep research failed: %s", e, exc_info=True)
+            yield _chunk(f"\n\n⚠️ Ошибка исследования: {e}")
+
+        yield _done()
+        yield b"data: [DONE]\n\n"
+
+    if stream:
+        return StreamingResponse(
+            _research_gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", **hdrs},
+        )
+
+    # Non-streaming: collect all chunks
+    full_result = ""
+    async for raw in _research_gen():
+        try:
+            line = raw.decode().strip()
+            if line.startswith("data: ") and line != "data: [DONE]":
+                parsed = json.loads(line[6:])
+                delta = parsed.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                full_result += delta
+        except Exception:
+            pass
+
+    return JSONResponse(content={
+        "id": f"gpthub-research-{int(time.time())}",
+        "object": "chat.completion",
+        "model": model,
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": full_result}, "finish_reason": "stop"}],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }, headers=hdrs)
 

@@ -251,15 +251,17 @@ _IMAGE_VERIFY_PROMPT = (
     "Пользователь написал сообщение. Нужно ли СГЕНЕРИРОВАТЬ ИЗОБРАЖЕНИЕ/КАРТИНКУ для ответа?\n"
     "Ответь СТРОГО ОДНИМ СЛОВОМ: ДА или НЕТ.\n\n"
     "Правила:\n"
-    "- ДА — ТОЛЬКО если пользователь явно просит НАРИСОВАТЬ, СОЗДАТЬ КАРТИНКУ, СГЕНЕРИРОВАТЬ ИЗОБРАЖЕНИЕ\n"
+    "- ДА — если пользователь явно просит НАРИСОВАТЬ, СОЗДАТЬ КАРТИНКУ, СГЕНЕРИРОВАТЬ ИЗОБРАЖЕНИЕ\n"
+    "- ДА — даже если описание картинки длинное и детальное — это всё равно запрос на изображение\n"
     "- НЕТ — если просит сгенерировать текст, код, отчёт, таблицу, список, презентацию\n"
     "- НЕТ — если говорит об изображениях абстрактно (обсуждает, спрашивает про них)\n"
     "- НЕТ — если просит изменить/описать уже загруженное изображение\n"
-    "- НЕТ — если просит что-то сложное/подробное (анализ, эссе, рассуждение)\n"
     "- НЕТ — если слово 'нарисуй' используется метафорически ('нарисуй картину будущего')\n\n"
     "Примеры:\n"
     "- 'нарисуй кота в космосе' → ДА\n"
     "- 'сгенерируй изображение заката' → ДА\n"
+    "- 'создай картинку: синий автомобиль в космосе, кинематографическое освещение, 8K, высокая детализация' → ДА\n"
+    "- 'создай картинку по объяснению: ...' → ДА\n"
     "- 'сгенерируй список задач' → НЕТ\n"
     "- 'нарисуй мне картину будущего России' → НЕТ\n"
     "- 'представь и опиши подробно архитектуру проекта' → НЕТ\n"
@@ -278,15 +280,20 @@ async def _verify_image_intent(text: str) -> bool:
     """
     from core.mws_client import chat_complete
 
-    # Quick negative check — if text is long (>300 chars) it's likely NOT a simple image request
-    if len(text.strip()) > 500:
-        logger.info("Image verify: text too long (%d chars), likely NOT image request", len(text))
-        return False
+    # Fast-pass for unambiguous explicit image keywords — no LLM needed.
+    # "создай картинку", "создай картинку по объяснению", "сгенерируй изображение" etc.
+    _EXPLICIT_IMAGE_RE = re.compile(
+        r"^\s*(создай|сгенерируй|generate|create)\s+(\S+\s+){0,2}(картинк|изображени|image|picture|illustration)\w*",
+        re.I,
+    )
+    if _EXPLICIT_IMAGE_RE.match(text.strip()):
+        logger.info("Image verify: explicit image keyword fast-pass → True (len=%d)", len(text))
+        return True
 
     try:
         completion = await chat_complete(
             model="gpt-oss-20b",
-            messages=[{"role": "user", "content": _IMAGE_VERIFY_PROMPT.format(message=text[:300])}],
+            messages=[{"role": "user", "content": _IMAGE_VERIFY_PROMPT.format(message=text[:800])}],
             temperature=0.0,
             max_tokens=500,  # reasoning models need budget for chain-of-thought + answer
         )

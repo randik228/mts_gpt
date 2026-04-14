@@ -55,6 +55,9 @@ MODELS: dict[str, ModelInfo] = {
 # Virtual routing aliases shown to user in OpenWebUI
 VIRTUAL_MODELS = ["auto", "auto-code", "auto-reasoning", "auto-creative", "auto-fast"]
 
+# Tool-forcing aliases (injected by frontend toolbar, not shown in model picker)
+TOOL_ALIASES = ["auto-search", "auto-image", "auto-presentation", "auto-research"]
+
 # Static mapping for explicit virtual model selection (Smart Router uses this too)
 _VIRTUAL_MAP: dict[str, str] = {
     "auto":             "gpt-oss-20b",                       # overridden by Smart Router at runtime
@@ -62,4 +65,9 @@ _VIRTUAL_MAP: dict[str, str] = {
     "auto-reasoning":   "deepseek-r1-distill-qwen-32b",
     "auto-creative":    "Qwen3-235B-A22B-Instruct-2507-FP8",
     "auto-fast":        "gpt-oss-20b",
+    # Tool-forcing: these go through special handlers, not model mapping
+    "auto-search":        "gpt-oss-120b",
+    "auto-image":         "qwen-image-lightning",
+    "auto-presentation":  "Qwen3-235B-A22B-Instruct-2507-FP8",
+    "auto-research":      "gpt-oss-120b",
 }

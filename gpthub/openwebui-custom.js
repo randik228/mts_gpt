@@ -680,3 +680,413 @@
 
   console.log('[GPTHub] Prompt suggestions loaded');
 })();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  5. OBSERVABILITY BADGE — show model/routing info under AI responses
+// ═══════════════════════════════════════════════════════════════════════
+(function () {
+  'use strict';
+
+  // Queue of routing info captured from response headers
+  var _routingQueue = [];
+
+  // Intercept window.fetch to capture X-GPTHub-* headers
+  var _origFetch = window.fetch;
+  window.fetch = async function (url, opts) {
+    var res = await _origFetch.apply(this, arguments);
+    try {
+      var urlStr = (typeof url === 'string') ? url : (url.url || '');
+      if (urlStr.includes('/chat/completions') || urlStr.includes('/api/chat')) {
+        var model    = res.headers.get('X-GPTHub-Model') || '';
+        var method   = res.headers.get('X-GPTHub-Routing-Method') || '';
+        var reason   = res.headers.get('X-GPTHub-Routing-Reason') || '';
+        var memCount = res.headers.get('X-GPTHub-Memory-Count') || '';
+        if (model) {
+          _routingQueue.push({ model: model, method: method, reason: reason, memCount: memCount, ts: Date.now() });
+        }
+      }
+    } catch (e) {}
+    return res;
+  };
+
+  // Shorten model name for display
+  function _shortModel(m) {
+    if (!m) return '';
+    var map = {
+      'qwen3-coder-480b-a35b': 'Qwen3-Coder 480B',
+      'Qwen3-235B-A22B-Instruct-2507-FP8': 'Qwen3 235B',
+      'gpt-oss-120b': 'GPT-OSS 120B',
+      'gpt-oss-20b': 'GPT-OSS 20B',
+      'deepseek-r1-distill-qwen-32b': 'DeepSeek-R1 32B',
+      'qwen3-vl-30b-a3b-instruct': 'Qwen3-VL 30B',
+      'qwen-image-lightning': 'Qwen-Image ⚡',
+      'qwen-image': 'Qwen-Image',
+      'qwen3-32b': 'Qwen3 32B',
+    };
+    return map[m] || m;
+  }
+
+  function _methodIcon(method) {
+    if (!method) return '';
+    if (method.includes('keyword')) return '🔑';
+    if (method.includes('llm')) return '🤖';
+    if (method.includes('embed')) return '📐';
+    if (method.includes('virtual')) return '🎯';
+    if (method.includes('context')) return '🔄';
+    if (method.includes('passthrough')) return '➡️';
+    return '⚡';
+  }
+
+  // Attach badge to an assistant message element
+  function _attachBadge(msgEl, info) {
+    if (msgEl.querySelector('.gpthub-obs-badge')) return; // already has badge
+    var badge = document.createElement('div');
+    badge.className = 'gpthub-obs-badge';
+    var icon = _methodIcon(info.method);
+    var modelLabel = _shortModel(info.model);
+    var memPart = (info.memCount && info.memCount !== '0')
+      ? ' · 💾 ' + info.memCount + ' из памяти'
+      : '';
+    badge.innerHTML =
+      '<span class="gpthub-obs-icon">' + icon + '</span>' +
+      '<span class="gpthub-obs-model">' + modelLabel + '</span>' +
+      (info.reason ? '<span class="gpthub-obs-reason" title="' + info.reason + '">' + info.method + '</span>' : '') +
+      (memPart ? '<span class="gpthub-obs-mem">' + memPart + '</span>' : '');
+    // Insert after message content, before action buttons
+    var actionBar = msgEl.querySelector('.flex.items-center.gap-1');
+    if (actionBar && actionBar.parentNode === msgEl) {
+      msgEl.insertBefore(badge, actionBar);
+    } else {
+      msgEl.appendChild(badge);
+    }
+  }
+
+  // MutationObserver: watch for new assistant messages
+  var _pendingBadge = null; // store info until message appears
+
+  // When routing info arrives, store it
+  function _onRoutingInfo(info) {
+    _pendingBadge = info;
+    // Try immediately if element already there
+    setTimeout(_tryAttachPending, 300);
+    setTimeout(_tryAttachPending, 1500);
+    setTimeout(_tryAttachPending, 3000);
+  }
+
+  function _tryAttachPending() {
+    if (!_pendingBadge) return;
+    // Find the last assistant message that doesn't have a badge yet
+    var msgs = document.querySelectorAll('[data-role="assistant"], .assistant-message, [class*="assistant"]');
+    // Fallback: look for messages in chat area
+    if (!msgs.length) {
+      // OpenWebUI renders messages differently — find by structure
+      msgs = document.querySelectorAll('.chat-messages [class*="group"]');
+    }
+    var last = null;
+    msgs.forEach(function(el) {
+      if (!el.querySelector('.gpthub-obs-badge')) last = el;
+    });
+    if (last) {
+      _attachBadge(last, _pendingBadge);
+      _pendingBadge = null;
+    }
+  }
+
+  // Poll routing queue
+  setInterval(function () {
+    while (_routingQueue.length > 0) {
+      _onRoutingInfo(_routingQueue.shift());
+    }
+  }, 200);
+
+  // Also watch DOM mutations to attach pending badge when message appears
+  new MutationObserver(function (mutations) {
+    if (_pendingBadge) _tryAttachPending();
+  }).observe(document.documentElement, { childList: true, subtree: true });
+
+  console.log('[GPTHub] Observability badge loaded');
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  6. TOOL BUTTONS — injected into native toolbar row (next to Веб-поиск)
+// ═══════════════════════════════════════════════════════════════════════
+(function () {
+  'use strict';
+
+  var _activeTool = null; // null = auto routing
+
+  var TOOLS = [
+    { id: 'search',       model: 'auto-search',       title: 'Принудительный веб-поиск' },
+    { id: 'image',        model: 'auto-image',        title: 'Генерация изображения' },
+    { id: 'presentation', model: 'auto-presentation', title: 'Создать PPTX-презентацию' },
+    { id: 'research',     model: 'auto-research',     title: 'Глубокий многоуровневый поиск' },
+  ];
+
+  // SVG icons matching OpenWebUI's heroicons style (stroke, currentColor, 16×16)
+  var _SVG = {
+    image: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-2px;flex-shrink:0"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+    presentation: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-2px;flex-shrink:0"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polyline points="7 10 10 7 13 10 17 6"/></svg>',
+    research: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-2px;flex-shrink:0"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>',
+  };
+
+  var INJECT_TOOLS = [
+    { id: 'image',        icon: _SVG.image,        label: 'Картинка',      title: 'Генерация изображения' },
+    { id: 'presentation', icon: _SVG.presentation, label: 'Презентация',   title: 'Создать PPTX-презентацию' },
+    { id: 'research',     icon: _SVG.research,     label: 'Deep Research', title: 'Глубокий многоуровневый поиск' },
+  ];
+
+  // ── Find the native "Веб-поиск" button ──
+  function _findWebSearchBtn() {
+    var btns = document.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      var t = btns[i].textContent.trim();
+      if (t.includes('Веб-поиск') || t.includes('Web Search') || t.includes('Web search')) {
+        return btns[i];
+      }
+    }
+    return null;
+  }
+
+  // ── Check if native web search is active ──
+  function _isWebSearchActive(btn) {
+    if (!btn) return false;
+    var cls = btn.className || '';
+    // OW marks active state with various classes; also check aria-pressed
+    return btn.getAttribute('aria-pressed') === 'true' ||
+           cls.includes('text-blue') || cls.includes('text-green') ||
+           cls.includes('bg-blue') || cls.includes('bg-green') ||
+           /\bactive\b/.test(cls);
+  }
+
+  // ── Deactivate all our tool buttons (no side-effects on native) ──
+  function _deactivateOurs() {
+    _activeTool = null;
+    document.querySelectorAll('.gpthub-tool-btn').forEach(function(b) {
+      b.classList.remove('active');
+    });
+  }
+
+  // ── Build and inject our buttons into the native toolbar ──
+  function _injectButtons() {
+    if (document.getElementById('gpthub-tool-btn-image')) return;
+    var webSearchBtn = _findWebSearchBtn();
+    if (!webSearchBtn) return;
+    var container = webSearchBtn.parentElement;
+    if (!container) return;
+
+    // Copy native button classes so our buttons look identical
+    var nativeCls = webSearchBtn.className;
+
+    // Mark native web search button for CSS targeting
+    webSearchBtn.classList.add('gpthub-ws-btn');
+
+    // Watch for class changes on web search button to recolor blue → red
+    function _applyWsColor() {
+      var cls = webSearchBtn.className || '';
+      var isActive = cls.includes('blue') || cls.includes('green') ||
+                     webSearchBtn.getAttribute('aria-pressed') === 'true';
+      var isDark = document.documentElement.classList.contains('dark');
+      if (isActive) {
+        webSearchBtn.style.setProperty('color', isDark ? '#ff8a8a' : '#c0392b', 'important');
+        webSearchBtn.style.setProperty('background', isDark ? 'rgba(227,6,17,0.2)' : 'rgba(227,6,17,0.1)', 'important');
+        // Also recolor inner SVG/spans
+        webSearchBtn.querySelectorAll('svg, span').forEach(function(el) {
+          el.style.setProperty('color', isDark ? '#ff8a8a' : '#c0392b', 'important');
+        });
+      } else {
+        webSearchBtn.style.removeProperty('color');
+        webSearchBtn.style.removeProperty('background');
+        webSearchBtn.querySelectorAll('svg, span').forEach(function(el) {
+          el.style.removeProperty('color');
+        });
+      }
+    }
+
+    new MutationObserver(_applyWsColor).observe(webSearchBtn, {
+      attributes: true, attributeFilter: ['class', 'aria-pressed']
+    });
+    _applyWsColor(); // apply on initial inject too
+
+    // Hook native "Веб-поиск":
+    // When clicked → deactivate our tools (mutual exclusion)
+    if (!webSearchBtn.dataset.gpthubHooked) {
+      webSearchBtn.dataset.gpthubHooked = '1';
+      webSearchBtn.addEventListener('click', function () {
+        _deactivateOurs();
+      });
+    }
+
+    // Inject our tool buttons after the web search button
+    INJECT_TOOLS.forEach(function (tool) {
+      var btn = document.createElement('button');
+      btn.id = 'gpthub-tool-btn-' + tool.id;
+      // Use same classes as native button for identical appearance
+      btn.className = nativeCls + ' gpthub-tool-btn';
+      btn.dataset.tool = tool.id;
+      btn.title = tool.title;
+      btn.type = 'button';
+      btn.innerHTML = tool.icon + '<span style="margin-left:4px">' + tool.label + '</span>';
+
+      btn.addEventListener('click', function () {
+        if (_activeTool === tool.id) {
+          // Toggle off
+          _deactivateOurs();
+          // Restore native button appearance to default
+          btn.className = nativeCls + ' gpthub-tool-btn';
+        } else {
+          // Deactivate native web search if it's active
+          if (_isWebSearchActive(webSearchBtn)) {
+            webSearchBtn.click();
+          }
+          // Deactivate other our buttons
+          _deactivateOurs();
+          // Activate this one
+          _activeTool = tool.id;
+          btn.className = nativeCls + ' gpthub-tool-btn active';
+        }
+        console.log('[GPTHub] Tool active:', _activeTool);
+      });
+
+      container.appendChild(btn);
+    });
+
+    // Keep our active button styled correctly when native classes change
+    // (OW sometimes re-renders the toolbar container)
+    console.log('[GPTHub] Tool buttons injected into native toolbar');
+  }
+
+  // ── Fetch interceptor — swap model when a tool is active ──
+  // Object.defineProperty trick to survive OpenWebUI overwriting window.fetch.
+  var _nativeFetch  = window.fetch;
+  var _innerFetch   = window.fetch;
+  var _toolInFlight = false;
+
+  function _toolFetch(url, opts) {
+    if (_toolInFlight) {
+      return _nativeFetch.call(this, url, opts);
+    }
+
+    if (_activeTool) {
+      var urlStr = (typeof url === 'string') ? url : (url && url.url ? url.url : '');
+      if (urlStr.includes('/api/chat/completions') || urlStr.includes('/chat/completions')) {
+        try {
+          var body = opts && opts.body ? JSON.parse(opts.body) : null;
+          if (body) {
+            var tool = TOOLS.find(function(t) { return t.id === _activeTool; });
+            if (tool) {
+              console.log('[GPTHub] Tool swap:', body.model, '\u2192', tool.model);
+              body.model = tool.model;
+              opts = Object.assign({}, opts, { body: JSON.stringify(body) });
+            }
+          }
+        } catch(e) {}
+      }
+    }
+
+    _toolInFlight = true;
+    try {
+      return _innerFetch.call(this, url, opts);
+    } finally {
+      _toolInFlight = false;
+    }
+  }
+
+  try {
+    Object.defineProperty(window, 'fetch', {
+      get: function () { return _toolFetch; },
+      set: function (fn) { if (fn !== _toolFetch) _innerFetch = fn; },
+      configurable: true,
+    });
+  } catch (e) {
+    _innerFetch = window.fetch;
+    window.fetch = _toolFetch;
+  }
+
+  // Watch for native toolbar to appear and inject our buttons
+  new MutationObserver(function () {
+    if (!document.getElementById('gpthub-tool-btn-image')) {
+      _injectButtons();
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  setTimeout(_injectButtons, 1000);
+
+  // Auto-deactivate after message send (single-use per message)
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey && _activeTool) {
+      setTimeout(_deactivateAll, 200);
+    }
+  }, true);
+
+  console.log('[GPTHub] Tool buttons loaded');
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  6. MODEL DESCRIPTIONS — subtitle under each model in the selector
+// ═══════════════════════════════════════════════════════════════════════
+(function () {
+  'use strict';
+
+  var MODEL_DESCS = {
+    'auto':                                    'Автоматический выбор лучшей модели',
+    'auto-code':                               'Оптимизирован для кода — Qwen3 Coder 480B',
+    'auto-reasoning':                          'Глубокие рассуждения — DeepSeek R1 / QwQ 32B',
+    'auto-creative':                           'Творческие задачи — Qwen3 235B',
+    'auto-fast':                               'Быстрые ответы — GPT-OSS 20B',
+    'gpt-oss-20b':                             'Быстрая общая модель · 3858 TPS',
+    'gpt-oss-120b':                            'Мощная общая модель · 2721 TPS',
+    'qwen3-coder-480b-a35b':                   'Лучший код · 480B параметров',
+    'deepseek-r1-distill-qwen-32b':            'Рассуждения с цепочкой мыслей',
+    'QwQ-32B':                                 'Альтернативная reasoning модель',
+    'Qwen3-235B-A22B-Instruct-2507-FP8':       'Творчество и сложные задачи · 235B',
+    'qwen3-32b':                               'Быстрая модель Qwen · 32B',
+    'qwen2.5-72b-instruct':                    'Общая модель Qwen 2.5 · 72B',
+    'qwen3-vl-30b-a3b-instruct':               'Понимает изображения · Vision 30B',
+    'qwen2.5-vl':                              'Vision модель Qwen 2.5',
+    'qwen2.5-vl-72b':                          'Мощное зрение · Vision 72B',
+    'cotype-pro-vl-32b':                       'Vision модель CoType Pro · 32B',
+    'whisper-turbo-local':                     'Распознавание речи · Whisper Turbo',
+    'whisper-medium':                          'Распознавание речи · Whisper Medium',
+    'qwen-image-lightning':                    'Генерация изображений · быстро',
+    'qwen-image':                              'Генерация изображений · качество',
+    'bge-m3':                                  'Эмбеддинги для поиска и RAG',
+    'llama-3.3-70b-instruct':                  'Llama 3.3 · 70B',
+    'llama-3.1-8b-instruct':                   'Llama 3.1 · 8B быстрый',
+    'kimi-k2-instruct':                        'Kimi K2 от Moonshot AI',
+    'glm-4.6-357b':                            'GLM-4.6 · 357B параметров',
+    'gemma-3-27b-it':                          'Gemma 3 от Google · 27B',
+    'T-pro-it-1.0':                            'T-Pro от МТС',
+    'mws-gpt-alpha':                           'MWS GPT Alpha',
+  };
+
+  function _injectDescs() {
+    var buttons = document.querySelectorAll('button[aria-label="model-item"]:not([data-gpthub-desc])');
+    buttons.forEach(function (btn) {
+      btn.setAttribute('data-gpthub-desc', '1');
+      var modelId = btn.getAttribute('data-value') || '';
+      var desc = MODEL_DESCS[modelId];
+      if (!desc) return;
+
+      // Fix line-clamp that cuts off subtitles
+      btn.style.webkitLineClamp = 'unset';
+      btn.style.overflow = 'visible';
+
+      var colDiv = btn.querySelector('div');
+      if (!colDiv) return;
+
+      var span = document.createElement('span');
+      span.className = 'gpthub-model-desc';
+      span.textContent = desc;
+      colDiv.appendChild(span);
+    });
+  }
+
+  new MutationObserver(function () {
+    if (document.querySelector('button[aria-label="model-item"]')) {
+      _injectDescs();
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+
+  setTimeout(_injectDescs, 500);
+  console.log('[GPTHub] Model descriptions loaded');
+})();
+
