@@ -4,6 +4,9 @@
    Dark-specific rules are scoped under html.dark
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ── Hide changelog/What's New modal completely ─────────────────────────── */
+/* Handled via JS auto-close in gpthub-vars script (MutationObserver)     */
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 /* ── Custom tokens (brand colors — theme-agnostic) ───────────────────── */

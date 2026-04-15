@@ -149,6 +149,22 @@ js = '''<script id=\"gpthub-vars\">(function(){
   }
   new MutationObserver(hideCI).observe(document.documentElement,{childList:true,subtree:true});
 
+  // ── Auto-close changelog modal ─────────────────────────────────────────
+  function _killChangelog(){
+    var overlay = document.querySelector('.modal.z-9999');
+    if(!overlay) return;
+    // Only target changelog modal: check for release notes text inside
+    var txt = overlay.textContent || '';
+    if(txt.indexOf('v0.') === -1 && txt.indexOf('What') === -1 && txt.indexOf('нового') === -1 && txt.indexOf('Release') === -1) return;
+    // Hide overlay immediately
+    overlay.style.setProperty('display','none','important');
+    // Also click the close button to clean up Svelte state
+    var closeBtn = overlay.querySelector('button');
+    if(closeBtn) closeBtn.click();
+  }
+  new MutationObserver(_killChangelog).observe(document.documentElement,{childList:true,subtree:true});
+  [0,100,300,500,1000,2000,3000].forEach(function(t){setTimeout(_killChangelog,t);});
+
   // ── Quick Login Buttons ──────────────────────────────────────────────
   var _QL = [
     {l:'Admin', e:String.fromCodePoint(0x1f6e1,0xfe0f), m:'admin@localhost', p:'admin', d:String.fromCharCode(1040,1076,1084,1080,1085,1080,1089,1090,1088,1072,1090,1086,1088)},
@@ -201,6 +217,19 @@ js = '''<script id=\"gpthub-vars\">(function(){
     // Block version update check — must return current/latest fields or localeCompare crashes
     if (urlStr.indexOf('/api/version/updates') !== -1) {
       return Promise.resolve(new Response('{\\\"current\\\":\\\"0.6.5\\\",\\\"latest\\\":\\\"0.6.5\\\"}', {status:200, headers:{'Content-Type':'application/json'}}));
+    }
+    // Patch user settings response to disable changelog modal
+    if (urlStr.indexOf('/api/v1/users/') !== -1 && urlStr.indexOf('/settings') !== -1) {
+      return _origFetch.apply(this, arguments).then(function(resp) {
+        return resp.clone().json().then(function(data) {
+          if (data && typeof data === 'object') {
+            if (!data.ui) data.ui = {};
+            data.ui.showChangelog = false;
+            data.ui.version = '0.6.5';
+          }
+          return new Response(JSON.stringify(data), {status: resp.status, headers: {'Content-Type':'application/json'}});
+        }).catch(function() { return resp; });
+      });
     }
 
     // Fix infinite chat pagination: if we already got empty pages, stop fetching
@@ -392,6 +421,31 @@ try:
             print(f"set gravatar for {_email}")
 except Exception as e:
     print(f'avatar fix: {e}')
+
+# Disable changelog modal for all users (update their settings)
+try:
+    _users_req2 = urllib.request.Request('http://localhost:8080/api/v1/users/', headers=headers)
+    _users2 = json.loads(urllib.request.urlopen(_users_req2, timeout=3).read())
+    for _u2 in _users2:
+        _uid2 = _u2.get('id','')
+        try:
+            _sr = urllib.request.Request(f'http://localhost:8080/api/v1/users/{_uid2}/settings', headers=headers)
+            _sd = json.loads(urllib.request.urlopen(_sr, timeout=3).read())
+        except:
+            _sd = {}
+        _ui = _sd.get('ui', {}) or {}
+        if not _ui.get('showChangelog') == False or _ui.get('version') != '0.6.5':
+            _ui['showChangelog'] = False
+            _ui['version'] = '0.6.5'
+            _sd['ui'] = _ui
+            _up = urllib.request.Request(
+                f'http://localhost:8080/api/v1/users/{_uid2}/settings/update',
+                data=json.dumps(_sd).encode(),
+                headers=headers, method='POST')
+            urllib.request.urlopen(_up, timeout=3)
+            print(f'disabled changelog for {_u2.get("email","")}')
+except Exception as e:
+    print(f'changelog disable: {e}')
 
 # Check if filter exists with correct code
 filter_exists = False
