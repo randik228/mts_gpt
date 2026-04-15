@@ -174,22 +174,6 @@ js = '''<script id=\"gpthub-vars\">(function(){
   new MutationObserver(_qlInject).observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('DOMContentLoaded', _qlInject);
 
-  // ── Auto-dismiss changelog / what-is-new modal ─────────────────────
-  function _killChangelog(){
-    document.querySelectorAll('button').forEach(function(b){
-      var t=(b.textContent||'').trim();
-      if(t.indexOf('\u0414\u0430\u0432\u0430\u0439\u0442\u0435')>-1 && t.indexOf('\u043d\u0430\u0447\u043d')>-1){b.click();return;}
-      if(t==='OK'||t===String.fromCharCode(76,101,116,39,115,32,71,111,33)||t.indexOf('Started')>-1){b.click();return;}
-    });
-    // Also try clicking the X button (usually first button in the modal header)
-    document.querySelectorAll('[class*=\\\"modal\\\"] button, [role=\\\"dialog\\\"] button').forEach(function(b){
-      var svg=b.querySelector('svg');
-      if(svg && !b.textContent.trim()) b.click(); // icon-only button = close
-    });
-  }
-  new MutationObserver(_killChangelog).observe(document.documentElement,{childList:true,subtree:true});
-  [500,1000,2000,4000].forEach(function(t){setTimeout(_killChangelog,t);});
-
   // ── Fetch interceptor: changelog suppression + memory cleanup ────────
   var _origFetch = window.fetch;
   window.fetch = function(url, opts) {
