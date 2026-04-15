@@ -174,21 +174,39 @@ js = '''<script id=\"gpthub-vars\">(function(){
   new MutationObserver(_qlInject).observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('DOMContentLoaded', _qlInject);
 
-  // ── Fetch interceptor: changelog suppression + memory cleanup ────────
+  // ── Fetch interceptor: changelog, pagination fix, memory cleanup ─────
   var _origFetch = window.fetch;
+  var _chatPageEmpty = 0; // tracks consecutive empty chat pages
   window.fetch = function(url, opts) {
     var urlStr = (typeof url === 'string') ? url : (url && url.url) || '';
 
-    // Block changelog popup — return empty so the modal has nothing to show
+    // Block changelog popup
     if (urlStr.indexOf('/api/changelog') !== -1) {
       return Promise.resolve(new Response('{}', {status:200, headers:{'Content-Type':'application/json'}}));
     }
-    // Block version update check to prevent update nag
+    // Block version update check
     if (urlStr.indexOf('/api/version/updates') !== -1) {
       return Promise.resolve(new Response('{\\\"available\\\":false}', {status:200, headers:{'Content-Type':'application/json'}}));
     }
 
+    // Fix infinite chat pagination: if we already got empty pages, stop fetching
+    var chatPageMatch = urlStr.match(/\\/api\\/v1\\/chats\\/\\?page=(\\d+)/);
+    if (chatPageMatch && _chatPageEmpty >= 2) {
+      return Promise.resolve(new Response('[]', {status:200, headers:{'Content-Type':'application/json'}}));
+    }
+
     var result = _origFetch.apply(this, arguments);
+
+    // Track empty chat pages to stop the loop
+    if (chatPageMatch) {
+      var pg = parseInt(chatPageMatch[1]);
+      result.then(function(resp) {
+        resp.clone().json().then(function(d) {
+          if (Array.isArray(d) && d.length === 0) { _chatPageEmpty++; }
+          else { _chatPageEmpty = 0; }
+        }).catch(function(){});
+      }).catch(function(){});
+    }
     try {
       var method = (opts && opts.method || 'GET').toUpperCase();
       if (method === 'DELETE') {
