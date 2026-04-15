@@ -184,9 +184,9 @@ js = '''<script id=\"gpthub-vars\">(function(){
     if (urlStr.indexOf('/api/changelog') !== -1) {
       return Promise.resolve(new Response('{}', {status:200, headers:{'Content-Type':'application/json'}}));
     }
-    // Block version update check
+    // Block version update check — must return current/latest fields or localeCompare crashes
     if (urlStr.indexOf('/api/version/updates') !== -1) {
-      return Promise.resolve(new Response('{\\\"available\\\":false}', {status:200, headers:{'Content-Type':'application/json'}}));
+      return Promise.resolve(new Response('{\\\"current\\\":\\\"0.6.5\\\",\\\"latest\\\":\\\"0.6.5\\\"}', {status:200, headers:{'Content-Type':'application/json'}}));
     }
 
     // Fix infinite chat pagination: if we already got empty pages, stop fetching

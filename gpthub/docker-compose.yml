@@ -33,6 +33,7 @@ services:
       - AUDIO_STT_MODEL=whisper-turbo-local
       - CONTENT_EXTRACTION_ENGINE=default
       - FILE_MAX_SIZE=500
+      - ENABLE_EVALUATION_ARENA_MODELS=false
     volumes:
       - webui_data:/app/backend/data
       - ./openwebui-custom.css:/app/custom-theme.css:ro
