@@ -77,6 +77,25 @@ js = '''<script id=\"gpthub-vars\">(function(){
     '--color-gray-900': '#111113',
     '--color-gray-950': '#0a0a0b'
   };
+  // Suppress changelog modal: set version so OpenWebUI thinks user already saw it
+  try { localStorage.setItem('version', '0.6.5'); } catch(e){}
+
+  // Global login handler for quick-login buttons (uses inline onclick to avoid event listener issues)
+  window._gpthubLogin = function(btn) {
+    var em = btn.getAttribute('data-email');
+    var pw = btn.getAttribute('data-pass');
+    btn.style.opacity = '0.6';
+    var fm = document.querySelector('form');
+    if (!fm) return;
+    var ei = fm.querySelector('input:not([type=password])');
+    var pi = fm.querySelector('input[type=password]');
+    if (!ei || !pi) return;
+    var ns = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    ns.call(ei, em); ei.dispatchEvent(new Event('input', {bubbles:true}));
+    ns.call(pi, pw); pi.dispatchEvent(new Event('input', {bubbles:true}));
+    setTimeout(function(){ var sb = fm.querySelector('button'); if(sb) sb.click(); }, 150);
+  };
+
   function apply() {
     var r = document.documentElement.style;
     for (var k in vars) r.setProperty(k, vars[k]);
@@ -158,14 +177,9 @@ js = '''<script id=\"gpthub-vars\">(function(){
       b.innerHTML = '<span style=\"font-size:22px\">'+a.e+'</span><span style=\"font-weight:600\">'+a.l+'</span><span style=\"font-size:11px;color:#888\">'+a.d+'</span>';
       b.onmouseenter = function(){ b.style.background='rgba(227,6,17,.15)'; b.style.borderColor='rgba(227,6,17,.4)'; };
       b.onmouseleave = function(){ b.style.background='rgba(255,255,255,.06)'; b.style.borderColor='rgba(255,255,255,.12)'; };
-      b.onclick = function(ev){
-        ev.preventDefault(); b.style.opacity='0.6';
-        fetch('/api/v1/auths/signin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:a.m,password:a.p})})
-        .then(function(r){return r.json()}).then(function(d){
-          if(d.token){localStorage.setItem('token',d.token);window.location.href='/';}
-          else{b.textContent='Error';setTimeout(function(){location.reload()},1500);}
-        }).catch(function(){b.textContent='Error';setTimeout(function(){location.reload()},1500);});
-      };
+      b.setAttribute('data-email', a.m);
+      b.setAttribute('data-pass', a.p);
+      b.setAttribute('onclick', 'window._gpthubLogin(this)');
       rw.appendChild(b);
     });
     w.appendChild(rw);
